@@ -377,6 +377,7 @@ class detector {
     'use strict';
     
     let suspicionScore = 0;
+    let detectionReasons = [];
     
     // Check for automation indicators
     const checks = {
@@ -391,6 +392,42 @@ class detector {
         },
         chrome: () => {
             return window.chrome === undefined && navigator.userAgent.includes('Chrome');
+        },
+        // Comet-specific: Check for Perplexity-injected elements
+        perplexitySidebar: () => {
+            // Comet injects a sidebar - check for common Perplexity class patterns
+            const body = document.body;
+            if (!body) return false;
+            
+            // Check for Perplexity-specific CSS classes or data attributes
+            const perplexityElements = document.querySelectorAll('[class*="perplexity"], [class*="comet"], [data-perplexity], [data-comet]');
+            return perplexityElements.length > 0;
+        },
+        // Check for AI agent overlay patterns
+        agentOverlay: () => {
+            // AI agents often inject overlays or modals
+            const overlays = document.querySelectorAll('[class*="agent"], [class*="assistant"], [id*="agent"], [id*="assistant"]');
+            return overlays.length > 0 && Array.from(overlays).some(el => {
+                const style = window.getComputedStyle(el);
+                return style.position === 'fixed' || style.position === 'absolute';
+            });
+        },
+        // Check for mutation observers (AI agents monitor DOM changes)
+        excessiveMutationObservers: () => {
+            // This is a heuristic - normal pages have few observers
+            const observers = document.querySelectorAll('[data-observer], [class*="observer"]');
+            return observers.length > 5;
+        },
+        // Check for abnormal event listeners
+        suspiciousListeners: () => {
+            // AI agents often attach many event listeners
+            const allElements = document.querySelectorAll('*');
+            let listenerCount = 0;
+            allElements.forEach(el => {
+                const events = getEventListeners ? getEventListeners(el) : {};
+                listenerCount += Object.keys(events).length;
+            });
+            return listenerCount > 100; // Threshold for suspicious activity
         }
     };
     
@@ -399,6 +436,7 @@ class detector {
         try {
             if (checks[check]()) {
                 suspicionScore++;
+                detectionReasons.push(check);
             }
         } catch (e) {
             // Ignore errors in checks
@@ -419,23 +457,63 @@ class detector {
         'callSelenium',
         '$cdc_',
         '$chrome_asyncScriptInfo',
-        '__$webdriverAsyncExecutor'
+        '__$webdriverAsyncExecutor',
+        // Perplexity/Comet specific
+        '__perplexity__',
+        '__comet__',
+        'perplexityAgent',
+        'cometAgent'
     ];
     
     for (let prop of automationProps) {
         if (window[prop] || document[prop]) {
             suspicionScore += 2;
+            detectionReasons.push('automation_property_' + prop);
             break;
         }
     }
     
-    // If suspicion is high, report back to server
-    if (suspicionScore >= 2) {
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', '{$detecturl}', true);
-        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-        xhr.send('detection=1&score=' + suspicionScore);
-    }
+    // Check for rapid form filling (AI agents fill forms very quickly)
+    let formInteractionTimes = [];
+    document.addEventListener('input', function(e) {
+        formInteractionTimes.push(Date.now());
+        
+        // If 3+ form fields filled in under 500ms, likely AI
+        if (formInteractionTimes.length >= 3) {
+            const timeDiff = formInteractionTimes[formInteractionTimes.length - 1] - formInteractionTimes[0];
+            if (timeDiff < 500) {
+                suspicionScore += 3;
+                detectionReasons.push('rapid_form_filling');
+            }
+            formInteractionTimes = []; // Reset
+        }
+    }, true);
+    
+    // Check for mouse movement patterns (AI agents often have no mouse movement or perfect linear movement)
+    let mouseMoveCount = 0;
+    let mouseStartTime = Date.now();
+    document.addEventListener('mousemove', function() {
+        mouseMoveCount++;
+    });
+    
+    setTimeout(function() {
+        // After 5 seconds, if no mouse movement, likely AI
+        if (mouseMoveCount === 0 && (Date.now() - mouseStartTime) > 5000) {
+            suspicionScore += 2;
+            detectionReasons.push('no_mouse_movement');
+        }
+    }, 5000);
+    
+    // Delayed check to allow for page interaction
+    setTimeout(function() {
+        // If suspicion is high, report back to server
+        if (suspicionScore >= 2) {
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', '{$detecturl}', true);
+            xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+            xhr.send('detection=1&score=' + suspicionScore + '&reasons=' + encodeURIComponent(detectionReasons.join(',')));
+        }
+    }, 2000);
 })();
 </script>
 EOD;
