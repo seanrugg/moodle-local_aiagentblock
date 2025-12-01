@@ -45,7 +45,7 @@ $PAGE->set_heading($course->fullname);
 $table = new flexible_table('local_aiagentblock_report');
 $table->define_columns([
     'username',
-    'timestamp',
+    'timecreated',
     'ipaddress',
     'agent',
     'browser',
@@ -66,8 +66,9 @@ $table->define_headers([
 ]);
 
 $table->define_baseurl($PAGE->url);
-$table->sortable(true, 'timestamp', SORT_DESC);
+$table->sortable(true, 'timecreated', SORT_DESC);
 $table->no_sorting('location');
+$table->no_sorting('agent');
 $table->collapsible(false);
 $table->is_downloadable(true);
 $table->show_download_buttons_at([TABLE_P_BOTTOM]);
