@@ -1,0 +1,21 @@
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# PHP
+vendor/
+composer.phar
+*.log
+
+# Moodle plugin specific
+amd/build/
+.grunt/
+node_modules/
+npm-debug.log
+
+# OS files
+Thumbs.db
