@@ -101,13 +101,13 @@ echo html_writer::start_div('form-group');
 
 echo html_writer::tag('label', 
     get_string('course_protection_enabled', 'local_aiagentblock'),
-    ['for' => 'id_enabled']
+    ['for' => 'id_enabled', 'class' => 'font-weight-bold']
 );
 
-echo html_writer::start_div('form-check');
+echo html_writer::start_div('form-check mt-2');
 
 // Enable radio button
-echo html_writer::start_div('form-check-inline');
+echo html_writer::start_div('form-check mb-2');
 echo html_writer::empty_tag('input', [
     'type' => 'radio',
     'name' => 'enabled',
@@ -118,12 +118,12 @@ echo html_writer::empty_tag('input', [
 ]);
 echo html_writer::tag('label', get_string('yes'), [
     'for' => 'id_enabled_yes',
-    'class' => 'form-check-label'
+    'class' => 'form-check-label ml-2'
 ]);
 echo html_writer::end_div();
 
 // Disable radio button
-echo html_writer::start_div('form-check-inline');
+echo html_writer::start_div('form-check mb-2');
 echo html_writer::empty_tag('input', [
     'type' => 'radio',
     'name' => 'enabled',
@@ -134,7 +134,7 @@ echo html_writer::empty_tag('input', [
 ]);
 echo html_writer::tag('label', get_string('no'), [
     'for' => 'id_enabled_no',
-    'class' => 'form-check-label'
+    'class' => 'form-check-label ml-2'
 ]);
 echo html_writer::end_div();
 
