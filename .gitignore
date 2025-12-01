@@ -1,14 +1,29 @@
-# IDE files
+# IDE and Editor files
 .idea/
 .vscode/
+*.sublime-project
+*.sublime-workspace
+.project
+.settings/
 *.swp
 *.swo
 *~
+.phpintel/
+
+# Operating System files
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
 
 # PHP
 vendor/
 composer.phar
+composer.lock
 *.log
 
 # Moodle plugin specific
@@ -16,6 +31,28 @@ amd/build/
 .grunt/
 node_modules/
 npm-debug.log
+yarn.lock
+package-lock.json
 
-# OS files
-Thumbs.db
+# Build and temp files
+*.cache
+*.tmp
+.sass-cache/
+
+# Testing
+coverage/
+.phpunit.result.cache
+
+# Environment and config files
+.env
+.env.local
+config.php
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# Documentation builds
+docs/_build/
+docs/.doctrees/
