@@ -1,0 +1,122 @@
+/**
+ * Styles for AI Agent Blocker plugin
+ *
+ * @package    local_aiagentblock
+ * @copyright  2024
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
+
+/* Detection report table styling */
+.local-aiagentblock-report-table {
+    width: 100%;
+}
+
+.local-aiagentblock-report-table .user-agent-details {
+    font-size: 0.85em;
+    color: #666;
+    margin-top: 0.25rem;
+    word-break: break-all;
+}
+
+.local-aiagentblock-report-table .activity-type {
+    font-size: 0.85em;
+    color: #666;
+    font-style: italic;
+}
+
+/* Blocked access page styling */
+.local-aiagentblock-blocked {
+    max-width: 800px;
+    margin: 2rem auto;
+    padding: 2rem;
+    text-align: center;
+}
+
+.local-aiagentblock-blocked .alert {
+    font-size: 1.1em;
+    padding: 1.5rem;
+}
+
+.local-aiagentblock-blocked .icon {
+    font-size: 4rem;
+    color: #d9534f;
+    margin-bottom: 1rem;
+}
+
+/* Course settings page */
+.local-aiagentblock-settings .help-text {
+    margin-top: 1rem;
+    padding: 1rem;
+    background-color: #f8f9fa;
+    border-left: 4px solid #0f6cbf;
+}
+
+/* Activity setting in form */
+.local-aiagentblock-activity-setting {
+    margin-top: 1rem;
+    padding: 1rem;
+    background-color: #f8f9fa;
+    border-radius: 4px;
+}
+
+/* Detection badges */
+.local-aiagentblock-badge {
+    display: inline-block;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.85em;
+    font-weight: 600;
+    border-radius: 3px;
+}
+
+.local-aiagentblock-badge-course {
+    background-color: #d1ecf1;
+    color: #0c5460;
+}
+
+.local-aiagentblock-badge-activity {
+    background-color: #fff3cd;
+    color: #856404;
+}
+
+.local-aiagentblock-badge-danger {
+    background-color: #f8d7da;
+    color: #721c24;
+}
+
+/* Report stats */
+.local-aiagentblock-stats {
+    margin-bottom: 1.5rem;
+}
+
+.local-aiagentblock-stats .stat-box {
+    padding: 1rem;
+    margin: 0.5rem;
+    border-radius: 4px;
+    text-align: center;
+}
+
+.local-aiagentblock-stats .stat-box .stat-number {
+    font-size: 2rem;
+    font-weight: bold;
+    display: block;
+}
+
+.local-aiagentblock-stats .stat-box .stat-label {
+    font-size: 0.9rem;
+    color: #666;
+}
+
+/* Mobile responsiveness */
+@media (max-width: 768px) {
+    .local-aiagentblock-report-table {
+        font-size: 0.9em;
+    }
+    
+    .local-aiagentblock-report-table .user-agent-details {
+        font-size: 0.75em;
+    }
+    
+    .local-aiagentblock-blocked {
+        padding: 1rem;
+    }
+}
