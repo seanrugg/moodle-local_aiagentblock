@@ -211,7 +211,7 @@ if (!$table->is_downloading()) {
     // Add link back to course
     echo html_writer::div('', 'mt-3');
     echo html_writer::tag('a',
-        get_string('backtocourse', 'moodle'),
+        get_string('backtocourse'),
         [
             'href' => new moodle_url('/course/view.php', ['id' => $courseid]),
             'class' => 'btn btn-secondary'
