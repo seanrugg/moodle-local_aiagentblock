@@ -362,26 +362,6 @@ class detector {
     }
     
     /**
-     * Get JavaScript for client-side detection with weighted scoring
-     * Loads AMD module to comply with CSP
-     *
-     * @return string JavaScript code
-     */
-    public static function get_detection_js() {
-        global $PAGE, $CFG;
-        
-        // In developer mode, force loading from source
-        if ($CFG->debugdeveloper) {
-            $PAGE->requires->js('/local/aiagentblock/amd/src/detector.js', true);
-        } else {
-            // Load the AMD module (CSP-compliant)
-            $PAGE->requires->js_call_amd('local_aiagentblock/detector', 'init');
-        }
-        
-        return '';
-    }
-    
-    /**
      * Identify specific AI agent from user agent string
      *
      * @param string $useragent User agent string
