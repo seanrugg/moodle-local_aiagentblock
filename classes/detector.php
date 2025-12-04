@@ -362,7 +362,7 @@ class detector {
     }
     
     /**
-     * Get JavaScript for client-side detection
+     * Get JavaScript for client-side detection with weighted scoring
      *
      * @return string JavaScript code
      */
@@ -371,7 +371,7 @@ class detector {
         
         $detecturl = new \moodle_url('/local/aiagentblock/detect.php');
         
-        return <<<EOD
+        return <<<'EOD'
 <script>
 (function() {
     'use strict';
@@ -379,141 +379,321 @@ class detector {
     let suspicionScore = 0;
     let detectionReasons = [];
     
-    // Check for automation indicators
-    const checks = {
-        webdriver: () => navigator.webdriver === true,
-        plugins: () => navigator.plugins && navigator.plugins.length === 0,
-        languages: () => navigator.languages && navigator.languages.length === 0,
-        automation: () => {
-            return window.navigator.userAgent.match(/headless|phantom|selenium|puppeteer/i);
-        },
-        permissions: () => {
-            return navigator.permissions === undefined;
-        },
-        chrome: () => {
-            return window.chrome === undefined && navigator.userAgent.includes('Chrome');
-        },
-        // Comet-specific: Check for Perplexity-injected elements
-        perplexitySidebar: () => {
-            // Comet injects a sidebar - check for common Perplexity class patterns
-            const body = document.body;
-            if (!body) return false;
+    // PHASE 1: IMMEDIATE DETECTION (No Delay)
+    // Run as soon as script loads
+    
+    // === CANVAS FINGERPRINTING (40 points) ===
+    function checkCanvasFingerprint() {
+        try {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
             
-            // Check for Perplexity-specific CSS classes or data attributes
-            const perplexityElements = document.querySelectorAll('[class*="perplexity"], [class*="comet"], [data-perplexity], [data-comet]');
-            return perplexityElements.length > 0;
-        },
-        // Check for AI agent overlay patterns
-        agentOverlay: () => {
-            // AI agents often inject overlays or modals
-            const overlays = document.querySelectorAll('[class*="agent"], [class*="assistant"], [id*="agent"], [id*="assistant"]');
-            return overlays.length > 0 && Array.from(overlays).some(el => {
-                const style = window.getComputedStyle(el);
-                return style.position === 'fixed' || style.position === 'absolute';
+            if (!ctx) {
+                return { detected: true, score: 40, reason: 'no_canvas_context' };
+            }
+            
+            // Draw something and check if it renders properly
+            ctx.textBaseline = 'top';
+            ctx.font = '14px Arial';
+            ctx.textBaseline = 'alphabetic';
+            ctx.fillStyle = '#f60';
+            ctx.fillRect(125, 1, 62, 20);
+            ctx.fillStyle = '#069';
+            ctx.fillText('Moodle Test', 2, 15);
+            ctx.fillStyle = 'rgba(102, 204, 0, 0.7)';
+            ctx.fillText('Moodle Test', 4, 17);
+            
+            const dataURL = canvas.toDataURL();
+            
+            // Some automation tools return empty or generic canvas
+            if (dataURL === 'data:,' || dataURL.length < 100) {
+                return { detected: true, score: 40, reason: 'canvas_empty' };
+            }
+            
+            return { detected: false, score: 0 };
+        } catch (e) {
+            return { detected: true, score: 40, reason: 'canvas_error' };
+        }
+    }
+    
+    // === SCREENSHOT DETECTION: Screen Capture API (50 points) ===
+    function interceptScreenCaptureAPI() {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+            return;
+        }
+        
+        const originalGetDisplayMedia = navigator.mediaDevices.getDisplayMedia.bind(navigator.mediaDevices);
+        
+        navigator.mediaDevices.getDisplayMedia = function(...args) {
+            suspicionScore += 50;
+            detectionReasons.push('screen_capture_api_called');
+            reportImmediately();
+            return originalGetDisplayMedia(...args);
+        };
+    }
+    
+    // === SCREENSHOT DETECTION: MediaRecorder (40 points) ===
+    function interceptMediaRecorder() {
+        if (!window.MediaRecorder) {
+            return;
+        }
+        
+        const OriginalMediaRecorder = window.MediaRecorder;
+        
+        window.MediaRecorder = function(...args) {
+            suspicionScore += 40;
+            detectionReasons.push('media_recorder_instantiated');
+            reportImmediately();
+            return new OriginalMediaRecorder(...args);
+        };
+        
+        window.MediaRecorder.prototype = OriginalMediaRecorder.prototype;
+    }
+    
+    // === SCREENSHOT DETECTION: Display Capture Permission (45 points) ===
+    async function checkDisplayCapturePermission() {
+        if (!navigator.permissions || !navigator.permissions.query) {
+            return;
+        }
+        
+        try {
+            const permissionStatus = await navigator.permissions.query({ 
+                name: 'display-capture' 
             });
-        },
-        // Check for mutation observers (AI agents monitor DOM changes)
-        excessiveMutationObservers: () => {
-            // This is a heuristic - normal pages have few observers
-            const observers = document.querySelectorAll('[data-observer], [class*="observer"]');
-            return observers.length > 5;
-        },
-        // Check for abnormal event listeners
-        suspiciousListeners: () => {
-            // AI agents often attach many event listeners
-            const allElements = document.querySelectorAll('*');
-            let listenerCount = 0;
-            allElements.forEach(el => {
-                const events = getEventListeners ? getEventListeners(el) : {};
-                listenerCount += Object.keys(events).length;
+            
+            if (permissionStatus.state === 'granted') {
+                suspicionScore += 45;
+                detectionReasons.push('display_capture_permission_granted');
+                reportImmediately();
+            }
+            
+            permissionStatus.addEventListener('change', () => {
+                if (permissionStatus.state === 'granted') {
+                    suspicionScore += 45;
+                    detectionReasons.push('display_capture_permission_changed');
+                    reportImmediately();
+                }
             });
-            return listenerCount > 100; // Threshold for suspicious activity
+        } catch (e) {
+            // Permission query not supported
+        }
+    }
+    
+    // === SCREENSHOT DETECTION: Screenshot Libraries (35 points) ===
+    function detectScreenshotLibraries() {
+        const knownLibraries = [
+            'html2canvas',
+            'dom-to-image',
+            'domtoimage',
+            'rasterizeHTML',
+            'html2image'
+        ];
+        
+        for (const lib of knownLibraries) {
+            if (window[lib]) {
+                suspicionScore += 35;
+                detectionReasons.push('screenshot_library_' + lib);
+            }
+        }
+    }
+    
+    // === WEIGHTED DETECTION CHECKS ===
+    const weightedChecks = {
+        // High confidence indicators (40-50 points)
+        webdriver: { 
+            check: () => navigator.webdriver === true, 
+            weight: 50 
+        },
+        automationProperty: {
+            check: () => {
+                const props = [
+                    'webdriver', '__webdriver_evaluate', '__selenium_evaluate',
+                    '__webdriver_script_function', '__driver_evaluate',
+                    '__webdriver_unwrapped', '__driver_unwrapped',
+                    '_Selenium_IDE_Recorder', '_selenium', 'callSelenium',
+                    '$cdc_', '$chrome_asyncScriptInfo', '__$webdriverAsyncExecutor',
+                    '__perplexity__', '__comet__', 'perplexityAgent', 'cometAgent'
+                ];
+                for (let prop of props) {
+                    if (window[prop] || document[prop]) return true;
+                }
+                return false;
+            },
+            weight: 50
+        },
+        perplexityElements: {
+            check: () => {
+                const elements = document.querySelectorAll(
+                    '[class*="perplexity"], [class*="comet"], ' +
+                    '[data-perplexity], [data-comet], ' +
+                    '[id*="perplexity"], [id*="comet"]'
+                );
+                return elements.length > 0;
+            },
+            weight: 45
+        },
+        
+        // Medium confidence indicators (20-35 points)
+        agentOverlay: {
+            check: () => {
+                const overlays = document.querySelectorAll(
+                    '[class*="agent"], [class*="assistant"], ' +
+                    '[id*="agent"], [id*="assistant"]'
+                );
+                return Array.from(overlays).some(el => {
+                    const style = window.getComputedStyle(el);
+                    return style.position === 'fixed' || style.position === 'absolute';
+                });
+            },
+            weight: 35
+        },
+        noPlugins: {
+            check: () => navigator.plugins && navigator.plugins.length === 0,
+            weight: 25
+        },
+        headlessUA: {
+            check: () => /HeadlessChrome|PhantomJS|Selenium|Puppeteer/i.test(navigator.userAgent),
+            weight: 30
+        },
+        
+        // Lower confidence indicators (15-20 points)
+        noLanguages: {
+            check: () => !navigator.languages || navigator.languages.length === 0,
+            weight: 15
+        },
+        chromeWithoutChrome: {
+            check: () => !window.chrome && navigator.userAgent.includes('Chrome'),
+            weight: 15
+        },
+        noPermissions: {
+            check: () => navigator.permissions === undefined,
+            weight: 15
         }
     };
     
-    // Run checks
-    for (let check in checks) {
+    // Run all weighted checks immediately
+    for (let checkName in weightedChecks) {
         try {
-            if (checks[check]()) {
-                suspicionScore++;
-                detectionReasons.push(check);
+            if (weightedChecks[checkName].check()) {
+                suspicionScore += weightedChecks[checkName].weight;
+                detectionReasons.push(checkName + '_' + weightedChecks[checkName].weight);
             }
         } catch (e) {
-            // Ignore errors in checks
+            // Ignore errors in individual checks
         }
     }
     
-    // Advanced: Check for common automation properties
-    const automationProps = [
-        'webdriver',
-        '__webdriver_evaluate',
-        '__selenium_evaluate',
-        '__webdriver_script_function',
-        '__driver_evaluate',
-        '__webdriver_unwrapped',
-        '__driver_unwrapped',
-        '_Selenium_IDE_Recorder',
-        '_selenium',
-        'callSelenium',
-        '$cdc_',
-        '$chrome_asyncScriptInfo',
-        '__$webdriverAsyncExecutor',
-        // Perplexity/Comet specific
-        '__perplexity__',
-        '__comet__',
-        'perplexityAgent',
-        'cometAgent'
-    ];
-    
-    for (let prop of automationProps) {
-        if (window[prop] || document[prop]) {
-            suspicionScore += 2;
-            detectionReasons.push('automation_property_' + prop);
-            break;
-        }
+    // Run canvas fingerprint check
+    const canvasResult = checkCanvasFingerprint();
+    if (canvasResult.detected) {
+        suspicionScore += canvasResult.score;
+        detectionReasons.push('canvas_' + canvasResult.reason);
     }
     
-    // Check for rapid form filling (AI agents fill forms very quickly)
+    // Run screenshot library detection
+    detectScreenshotLibraries();
+    
+    // Setup screenshot API interception
+    interceptScreenCaptureAPI();
+    interceptMediaRecorder();
+    checkDisplayCapturePermission();
+    
+    // PHASE 2: EVENT-TRIGGERED DETECTION
+    
+    // === Rapid Form Filling (30 points) ===
     let formInteractionTimes = [];
     document.addEventListener('input', function(e) {
         formInteractionTimes.push(Date.now());
         
-        // If 3+ form fields filled in under 500ms, likely AI
         if (formInteractionTimes.length >= 3) {
             const timeDiff = formInteractionTimes[formInteractionTimes.length - 1] - formInteractionTimes[0];
             if (timeDiff < 500) {
-                suspicionScore += 3;
-                detectionReasons.push('rapid_form_filling');
+                suspicionScore += 30;
+                detectionReasons.push('rapid_form_filling_30');
+                formInteractionTimes = [];
+                reportImmediately();
             }
-            formInteractionTimes = []; // Reset
         }
     }, true);
     
-    // Check for mouse movement patterns (AI agents often have no mouse movement or perfect linear movement)
+    // === Canvas Monitoring (25 points) ===
+    let canvasCreationCount = 0;
+    let hiddenCanvasCount = 0;
+    const originalCreateElement = document.createElement.bind(document);
+    
+    document.createElement = function(tagName) {
+        const element = originalCreateElement(tagName);
+        
+        if (tagName && tagName.toLowerCase() === 'canvas') {
+            canvasCreationCount++;
+            
+            setTimeout(() => {
+                const computed = window.getComputedStyle(element);
+                if (computed.display === 'none' || computed.visibility === 'hidden') {
+                    hiddenCanvasCount++;
+                    
+                    if (hiddenCanvasCount >= 2) {
+                        suspicionScore += 25;
+                        detectionReasons.push('multiple_hidden_canvases_25');
+                        reportImmediately();
+                    }
+                }
+            }, 100);
+            
+            if (canvasCreationCount > 5) {
+                suspicionScore += 20;
+                detectionReasons.push('excessive_canvas_count_20');
+                reportImmediately();
+            }
+        }
+        
+        return element;
+    };
+    
+    // PHASE 3: CONTINUOUS MONITORING
+    
+    // === Mouse Movement Analysis (35 points for no movement) ===
     let mouseMoveCount = 0;
     let mouseStartTime = Date.now();
+    
     document.addEventListener('mousemove', function() {
         mouseMoveCount++;
     });
     
     setTimeout(function() {
-        // After 5 seconds, if no mouse movement, likely AI
         if (mouseMoveCount === 0 && (Date.now() - mouseStartTime) > 5000) {
-            suspicionScore += 2;
-            detectionReasons.push('no_mouse_movement');
+            suspicionScore += 35;
+            detectionReasons.push('no_mouse_movement_35');
+            reportImmediately();
         }
     }, 5000);
     
-    // Delayed check to allow for page interaction
-    setTimeout(function() {
-        // If suspicion is high, report back to server
-        if (suspicionScore >= 2) {
-            const xhr = new XMLHttpRequest();
-            xhr.open('POST', '{$detecturl}', true);
-            xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-            xhr.send('detection=1&score=' + suspicionScore + '&reasons=' + encodeURIComponent(detectionReasons.join(',')));
+    // === Report Functions ===
+    function reportImmediately() {
+        if (suspicionScore >= 60) {
+            sendReport();
         }
-    }, 2000);
+    }
+    
+    function sendReport() {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', 'EOD' . $detecturl->out(false) . <<<'EOD', true);
+        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+        xhr.send('detection=1&score=' + suspicionScore + '&reasons=' + encodeURIComponent(detectionReasons.join(',')));
+    }
+    
+    // IMMEDIATE REPORT if score already high from Phase 1
+    if (suspicionScore >= 60) {
+        sendReport();
+    }
+    
+    // Also report after brief delay (catch slower indicators)
+    setTimeout(function() {
+        if (suspicionScore >= 60) {
+            sendReport();
+        }
+    }, 1000);
+    
 })();
 </script>
 EOD;
