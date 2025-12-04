@@ -104,6 +104,9 @@ $string['detected_manus'] = 'Manus AI';
 $string['detected_perplexity'] = 'Perplexity Comet';
 $string['detected_generic'] = 'Generic AI Agent';
 $string['detected_automation'] = 'Browser Automation Tool';
+$string['detected_canvas'] = 'Canvas Fingerprint Anomaly';
+$string['detected_screenshot'] = 'Screen Capture Activity';
+$string['detected_media_recorder'] = 'Media Recording Activity';
 
 // Email notifications
 $string['email_subject'] = 'AI Agent Detection Alert - {$a}';
