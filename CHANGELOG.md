@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Canvas Fingerprinting Detection** (40 points) - Detects headless browsers and automation tools that fail canvas rendering tests
+- **Screenshot Detection System** - Multi-layered detection for AI agents using screen capture:
+  - Screen Capture API interception (50 points)
+  - MediaRecorder detection (40 points)
+  - Display capture permission monitoring (45 points)
+  - Screenshot library detection (35 points) - html2canvas, dom-to-image, etc.
+  - Canvas creation monitoring (20-25 points)
+- **Weighted Scoring System** - Sophisticated scoring with different weights for different signals:
+  - High confidence: 40-50 points (webdriver, automation properties, canvas failures)
+  - Medium confidence: 20-35 points (no plugins, headless UA, agent overlays)
+  - Lower confidence: 15-20 points (missing languages, no permissions)
+- **Immediate Detection** - Removed 2-second delay, checks now run instantly on page load
+- **Three-Phase Detection Strategy**:
+  - Phase 1: Immediate checks (no delay)
+  - Phase 2: Event-triggered checks (form interactions)
+  - Phase 3: Continuous monitoring (mouse movement, timing)
+
+### Changed
+- Detection now runs immediately instead of after 2-second delay
+- Suspicion threshold raised to 60 points (from 2 points)
+- Detection reports sent immediately when threshold exceeded
+- Enhanced detection reasons now include score weights for transparency
+
+### Technical Improvements
+- Canvas fingerprinting catches headless browsers
+- Screen Capture API interception catches Comet and similar AI browsers
+- MediaRecorder detection catches screen recording automation
+- Permission monitoring detects display capture grants
+- Screenshot library detection catches html2canvas, dom-to-image, etc.
+- Multi-phase detection catches AI agents at different operational stages
+
 ## [1.0.0-alpha] - 2024-12-01
 
 ### Added
