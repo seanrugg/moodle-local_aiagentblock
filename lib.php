@@ -27,10 +27,10 @@ defined('MOODLE_INTERNAL') || die();
 require_once($CFG->dirroot . '/local/aiagentblock/classes/detector.php');
 
 /**
- * Hook called before page output
+ * Hook called before page output (NEW HOOK SYSTEM for Moodle 5.x)
  * This is where we perform AI agent detection
  */
-function local_aiagentblock_before_standard_html_head() {
+function local_aiagentblock_before_standard_head_html_generation() {
     global $PAGE, $COURSE;
     
     // Don't check on login page or if user is not logged in
