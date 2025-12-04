@@ -368,10 +368,15 @@ class detector {
      * @return string JavaScript code
      */
     public static function get_detection_js() {
-        global $PAGE;
+        global $PAGE, $CFG;
         
-        // Load the AMD module (CSP-compliant)
-        $PAGE->requires->js_call_amd('local_aiagentblock/detector', 'init');
+        // In developer mode, force loading from source
+        if ($CFG->debugdeveloper) {
+            $PAGE->requires->js('/local/aiagentblock/amd/src/detector.js', true);
+        } else {
+            // Load the AMD module (CSP-compliant)
+            $PAGE->requires->js_call_amd('local_aiagentblock/detector', 'init');
+        }
         
         return '';
     }
