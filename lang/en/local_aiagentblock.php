@@ -148,6 +148,7 @@ $string['activity_protection_updated'] = 'Activity protection settings updated.'
 // Navigation
 $string['nav_reports'] = 'AI Agent Detections';
 $string['nav_settings'] = 'AI Agent Protection Settings';
+$string['returntocourse'] = 'Return to course';
 
 // Help text
 $string['help_course_disable'] = 'Disable protection if this course requires students to use AI agents as learning tools.';
