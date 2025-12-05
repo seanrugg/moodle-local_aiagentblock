@@ -18,14 +18,14 @@
  * Version information for AI Agent Blocker plugin
  *
  * @package    local_aiagentblock
- * @copyright  2024
+ * @copyright  2025
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_aiagentblock';
-$plugin->version = 2024120100;  // YYYYMMDDXX format
+$plugin->version = 2025120400;  // YYYYMMDDXX format
 $plugin->requires = 2022041900; // Moodle 4.0 minimum (compatible through 5.1+)
 $plugin->supported = [400, 501]; // Moodle 4.0 to 5.1 (and higher)
 $plugin->maturity = MATURITY_ALPHA; // MATURITY_ALPHA, MATURITY_BETA, MATURITY_RC or MATURITY_STABLE
