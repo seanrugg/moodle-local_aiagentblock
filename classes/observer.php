@@ -105,7 +105,14 @@ class observer {
         }
         
         // Perfect score on fast completion is extra suspicious
-        $grade_percent = ($attempt->sumgrades / $quiz->sumgrades) * 100;
+        $grade_percent = 0;
+        if ($quiz->sumgrades > 0) {
+            $grade_percent = ($attempt->sumgrades / $quiz->sumgrades) * 100;
+        } else if ($attempt->sumgrades > 0) {
+            // Fallback: If quiz sumgrades is 0, check if attempt has a grade
+            $grade_percent = 100; // Assume perfect if they have any grade
+        }
+        
         if ($grade_percent >= 100 && $minutes < 3) {
             $suspicion_score += 20;
             $reasons[] = 'perfect_score_fast_completion';
@@ -157,9 +164,10 @@ class observer {
         // Create detailed user agent string with timing info
         $user_agent = $_SERVER['HTTP_USER_AGENT'] ?? 'Unknown';
         
-        // Create browser field with timing details
+        // Create browser field with timing details and suspicion score
         $browser_info = sprintf(
-            'Timing Analysis: %s min (%.0f sec) | %d questions | %.1f%% grade | %s',
+            'Score: %d/100 | Time: %.1f min (%d sec) | %d questions | Grade: %.1f%% | %s',
+            $score,
             $minutes,
             $duration,
             $questioncount,
