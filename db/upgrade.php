@@ -35,16 +35,55 @@ function xmldb_local_aiagentblock_upgrade($oldversion) {
 
     $dbman = $DB->get_manager();
 
-    // Add suspicion_score column
-    if ($oldversion < 2025120500) {
+    // Add suspicion_score column if it doesn't exist
+    if ($oldversion < 2025120501) {
         $table = new xmldb_table('local_aiagentblock_log');
-        $field = new xmldb_field('suspicion_score', XMLDB_TYPE_INTEGER, '3', null, null, null, '0', 'ip_address');
+        
+        $field = new xmldb_field('suspicion_score', XMLDB_TYPE_INTEGER, '3', null, 
+            XMLDB_NOTNULL, null, '0', 'ip_address');
 
         if (!$dbman->field_exists($table, $field)) {
             $dbman->add_field($table, $field);
         }
 
-        upgrade_plugin_savepoint(true, 2025120500, 'local', 'aiagentblock');
+        upgrade_plugin_savepoint(true, 2025120501, 'local', 'aiagentblock');
+    }
+    
+    // Clean up any records with invalid data and set defaults
+    if ($oldversion < 2025120502) {
+        // Delete records where courseid doesn't exist anymore
+        $DB->execute("
+            DELETE FROM {local_aiagentblock_log}
+            WHERE courseid NOT IN (SELECT id FROM {course})
+        ");
+        
+        // Delete records where userid doesn't exist anymore
+        $DB->execute("
+            DELETE FROM {local_aiagentblock_log}
+            WHERE userid NOT IN (SELECT id FROM {user})
+        ");
+        
+        // Delete records where contextid doesn't exist anymore
+        $DB->execute("
+            DELETE FROM {local_aiagentblock_log}
+            WHERE contextid NOT IN (SELECT id FROM {context})
+        ");
+        
+        // Set default suspicion_score for old records that don't have it
+        $DB->execute("
+            UPDATE {local_aiagentblock_log}
+            SET suspicion_score = 0
+            WHERE suspicion_score IS NULL
+        ");
+        
+        // Ensure browser field is not null
+        $DB->execute("
+            UPDATE {local_aiagentblock_log}
+            SET browser = 'Unknown'
+            WHERE browser IS NULL OR browser = ''
+        ");
+        
+        upgrade_plugin_savepoint(true, 2025120502, 'local', 'aiagentblock');
     }
 
     return true;
