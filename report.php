@@ -131,8 +131,11 @@ if (empty($records)) {
                         html_writer::tag('div', $user->username, ['class' => 'small text-muted']);
         }
         
-        // Timestamp
-        $timestamp = userdate($record->timecreated, get_string('strftimedatetimeshort'));
+        // Timestamp with link to attempt review (if pageurl points to review)
+        $timestamp_display = userdate($record->timecreated, get_string('strftimedatetimeshort'));
+        if (!$table->is_downloading() && !empty($record->pageurl) && strpos($record->pageurl, '/mod/quiz/review.php') !== false) {
+            $timestamp_display = html_writer::link($record->pageurl, $timestamp_display, ['title' => 'View quiz attempt']);
+        }
         
         // IP Address
         $ipaddress = $record->ip_address;
@@ -146,7 +149,7 @@ if (empty($records)) {
             );
         }
         
-        // Browser
+        // Browser info (now without suspicion score)
         $browser = $record->browser ?: get_string('unknown', 'moodle');
         
         // Location (course page or activity)
@@ -170,6 +173,22 @@ if (empty($records)) {
             $location = get_string('course') . ': ' . $course->shortname;
         }
         
+        // Suspicion Score with color coding
+        $suspicion_score = isset($record->suspicion_score) ? $record->suspicion_score : 0;
+        if (!$table->is_downloading()) {
+            $score_class = '';
+            if ($suspicion_score >= 90) {
+                $score_class = 'badge badge-danger';
+            } else if ($suspicion_score >= 70) {
+                $score_class = 'badge badge-warning';
+            } else if ($suspicion_score >= 50) {
+                $score_class = 'badge badge-info';
+            }
+            $suspicion_display = html_writer::tag('span', $suspicion_score . '/100', ['class' => $score_class]);
+        } else {
+            $suspicion_display = $suspicion_score . '/100';
+        }
+        
         // Protection level
         if ($record->protection_level === 'activity') {
             $protectionlevel = get_string('protection_level_activity', 'local_aiagentblock');
@@ -188,17 +207,21 @@ if (empty($records)) {
             case 'client_side':
                 $detectionmethod = get_string('detection_method_client_side', 'local_aiagentblock');
                 break;
+            case 'timing_analysis':
+                $detectionmethod = get_string('detection_method_timing', 'local_aiagentblock');
+                break;
             default:
                 $detectionmethod = $record->detection_method;
         }
         
         $table->add_data([
             $username,
-            $timestamp,
+            $timestamp_display,
             $ipaddress,
             $agent,
             $browser,
             $location,
+            $suspicion_display,
             $protectionlevel,
             $detectionmethod
         ]);
