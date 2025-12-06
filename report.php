@@ -69,6 +69,7 @@ $table->define_baseurl($PAGE->url);
 $table->sortable(true, 'timecreated', SORT_DESC);
 $table->no_sorting('location');
 $table->no_sorting('agent');
+$table->no_sorting('browser');
 $table->collapsible(false);
 $table->is_downloadable(true);
 $table->show_download_buttons_at([TABLE_P_BOTTOM]);
@@ -173,20 +174,32 @@ if (empty($records)) {
             $location = get_string('course') . ': ' . $course->shortname;
         }
         
-        // Suspicion Score with color coding
+        // Suspicion Score with color coding (cap at 100 for display)
         $suspicion_score = isset($record->suspicion_score) ? $record->suspicion_score : 0;
+        $display_score = min($suspicion_score, 100); // Cap at 100 for display
+        
         if (!$table->is_downloading()) {
             $score_class = '';
+            $confidence_text = '';
             if ($suspicion_score >= 90) {
                 $score_class = 'badge badge-danger';
+                $confidence_text = 'Critical';
             } else if ($suspicion_score >= 70) {
                 $score_class = 'badge badge-warning';
+                $confidence_text = 'High';
             } else if ($suspicion_score >= 50) {
                 $score_class = 'badge badge-info';
+                $confidence_text = 'Moderate';
+            } else {
+                $score_class = 'badge badge-secondary';
+                $confidence_text = 'Low';
             }
-            $suspicion_display = html_writer::tag('span', $suspicion_score . '/100', ['class' => $score_class]);
+            $suspicion_display = html_writer::tag('span', $display_score . '%', ['class' => $score_class]) .
+                                html_writer::tag('div', $confidence_text, ['class' => 'small text-muted']);
         } else {
-            $suspicion_display = $suspicion_score . '/100';
+            $suspicion_display = $display_score . '% (' . ($suspicion_score >= 90 ? 'Critical' : 
+                                ($suspicion_score >= 70 ? 'High' : 
+                                ($suspicion_score >= 50 ? 'Moderate' : 'Low'))) . ')';
         }
         
         // Protection level
