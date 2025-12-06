@@ -43,6 +43,8 @@ $PAGE->set_heading($course->fullname);
 
 // Define the table
 $table = new flexible_table('local_aiagentblock_report');
+
+// Define columns - EXACTLY 8 columns
 $table->define_columns([
     'username',
     'timecreated',
@@ -50,10 +52,12 @@ $table->define_columns([
     'agent',
     'browser',
     'location',
+    'suspicionscore',
     'protectionlevel',
     'detectionmethod'
 ]);
 
+// Define headers - EXACTLY 9 headers to match 9 columns
 $table->define_headers([
     get_string('col_username', 'local_aiagentblock'),
     get_string('col_timestamp', 'local_aiagentblock'),
@@ -61,6 +65,7 @@ $table->define_headers([
     get_string('col_useragent', 'local_aiagentblock'),
     get_string('col_browser', 'local_aiagentblock'),
     get_string('col_location', 'local_aiagentblock'),
+    get_string('col_suspicionscore', 'local_aiagentblock'),
     get_string('col_protectionlevel', 'local_aiagentblock'),
     get_string('col_detectionmethod', 'local_aiagentblock')
 ]);
@@ -150,7 +155,7 @@ if (empty($records)) {
             );
         }
         
-        // Browser info (now without suspicion score)
+        // Browser info
         $browser = $record->browser ?: get_string('unknown', 'moodle');
         
         // Location (course page or activity)
@@ -227,6 +232,7 @@ if (empty($records)) {
                 $detectionmethod = $record->detection_method;
         }
         
+        // Add row with EXACTLY 9 values to match 9 columns
         $table->add_data([
             $username,
             $timestamp_display,
