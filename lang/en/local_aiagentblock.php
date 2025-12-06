@@ -89,6 +89,7 @@ $string['col_suspicionscore'] = 'Suspicion Score';
 $string['col_protectionlevel'] = 'Protection Level';
 $string['col_detectionmethod'] = 'Detection Method';
 $string['col_actions'] = 'Actions';
+$string['col_recordcount'] = 'Record Count';
 
 // Report values
 $string['protection_level_course'] = 'Course-level';
@@ -156,3 +157,23 @@ $string['returntocourse'] = 'Return to course';
 $string['help_course_disable'] = 'Disable protection if this course requires students to use AI agents as learning tools.';
 $string['help_activity_disable'] = 'You can disable protection for specific activities while keeping it enabled for the rest of the course.';
 $string['help_legitimate_use'] = 'Some courses may require AI agent usage. Examples include: AI literacy courses, research projects involving AI tools, or collaborative AI assignments.';
+
+// Deletion management
+$string['delete_records'] = 'Delete Detection Records';
+$string['delete_all_records'] = 'Delete All Records';
+$string['delete_all_warning'] = 'WARNING: This will permanently delete ALL detection records from ALL courses. This action cannot be undone.';
+$string['delete_course_records'] = 'Delete Records by Course';
+$string['delete_old_records'] = 'Delete Old Records';
+$string['delete_old_warning'] = 'Delete detection records older than {$a} days. This helps maintain database performance.';
+$string['records_deleted'] = '{$a} detection record(s) deleted successfully.';
+$string['total_records'] = 'Total detection records: {$a}';
+$string['old_records'] = 'Records older than 90 days: {$a}';
+$string['no_course_records'] = 'No detection records found for any courses.';
+$string['no_old_records'] = 'No old records to delete.';
+
+// Course reset
+$string['reset_logs'] = 'Delete AI agent detection logs';
+$string['reset_settings'] = 'Reset AI agent protection settings to defaults';
+
+// Scheduled task
+$string['cleanup_old_logs'] = 'Clean up old AI agent detection logs';
