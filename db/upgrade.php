@@ -35,23 +35,17 @@ function xmldb_local_aiagentblock_upgrade($oldversion) {
 
     $dbman = $DB->get_manager();
 
-    // Placeholder for future upgrades
-    // Example upgrade pattern:
-    /*
-    if ($oldversion < 2024120101) {
-        // Define field newfield to be added to local_aiagentblock_log
+    // Add suspicion_score column
+    if ($oldversion < 2025120500) {
         $table = new xmldb_table('local_aiagentblock_log');
-        $field = new xmldb_field('newfield', XMLDB_TYPE_CHAR, '255', null, null, null, null, 'previousfield');
+        $field = new xmldb_field('suspicion_score', XMLDB_TYPE_INTEGER, '3', null, null, null, '0', 'ip_address');
 
-        // Conditionally add field
         if (!$dbman->field_exists($table, $field)) {
             $dbman->add_field($table, $field);
         }
 
-        // Savepoint reached
-        upgrade_plugin_savepoint(true, 2024120101, 'local', 'aiagentblock');
+        upgrade_plugin_savepoint(true, 2025120500, 'local', 'aiagentblock');
     }
-    */
 
     return true;
 }
