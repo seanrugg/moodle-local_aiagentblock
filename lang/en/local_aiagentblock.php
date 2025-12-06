@@ -85,6 +85,7 @@ $string['col_ipaddress'] = 'IP Address';
 $string['col_useragent'] = 'AI Agent';
 $string['col_browser'] = 'Browser';
 $string['col_location'] = 'Location';
+$string['col_suspicionscore'] = 'Suspicion Score';
 $string['col_protectionlevel'] = 'Protection Level';
 $string['col_detectionmethod'] = 'Detection Method';
 $string['col_actions'] = 'Actions';
@@ -95,6 +96,7 @@ $string['protection_level_activity'] = 'Activity-level';
 $string['detection_method_user_agent'] = 'User Agent';
 $string['detection_method_headers'] = 'HTTP Headers';
 $string['detection_method_client_side'] = 'Client-side JavaScript';
+$string['detection_method_timing'] = 'Timing Analysis';
 $string['view_details'] = 'View Details';
 $string['export_csv'] = 'Export to CSV';
 
