@@ -40,8 +40,8 @@ class observer {
     public static function quiz_attempt_submitted(\mod_quiz\event\attempt_submitted $event) {
         global $DB;
         
-        // Get the attempt data
-        $attempt = $event->get_record_snapshot('quiz_attempts', $event->objectid);
+        // Get the attempt data (AFTER submission, so grades are calculated)
+        $attempt = $DB->get_record('quiz_attempts', ['id' => $event->objectid], '*', MUST_EXIST);
         
         // Calculate completion time in seconds
         $duration = $attempt->timefinish - $attempt->timestart;
@@ -54,6 +54,21 @@ class observer {
         $cm = get_coursemodule_from_instance('quiz', $quiz->id, $event->courseid);
         if (!$cm) {
             return; // Can't proceed without course module
+        }
+        
+        // Get the FINAL grade for this attempt (from quiz_grades table)
+        $final_grade = $DB->get_record('quiz_grades', [
+            'quiz' => $quiz->id,
+            'userid' => $attempt->userid
+        ]);
+        
+        // Calculate grade percentage
+        $grade_percent = 0;
+        if ($final_grade && $quiz->grade > 0) {
+            $grade_percent = ($final_grade->grade / $quiz->grade) * 100;
+        } else if ($quiz->sumgrades > 0 && $attempt->sumgrades > 0) {
+            // Fallback: calculate from attempt grades
+            $grade_percent = ($attempt->sumgrades / $quiz->sumgrades) * 100;
         }
         
         // Count questions in quiz
@@ -105,17 +120,38 @@ class observer {
         }
         
         // Perfect score on fast completion is extra suspicious
-        $grade_percent = 0;
-        if ($quiz->sumgrades > 0) {
-            $grade_percent = ($attempt->sumgrades / $quiz->sumgrades) * 100;
-        } else if ($attempt->sumgrades > 0) {
-            // Fallback: If quiz sumgrades is 0, check if attempt has a grade
-            $grade_percent = 100; // Assume perfect if they have any grade
-        }
-        
         if ($grade_percent >= 100 && $minutes < 3) {
             $suspicion_score += 20;
             $reasons[] = 'perfect_score_fast_completion';
+        }
+        
+        // === QUICK WIN ENHANCEMENTS ===
+        
+        // 1. ANSWER CHANGE DETECTION (No corrections = suspicious)
+        $answer_changes = self::count_answer_changes($attempt->uniqueid);
+        if ($answer_changes === 0 && $questioncount >= 3) {
+            $suspicion_score += 30;
+            $reasons[] = 'no_answer_corrections';
+        } else if ($answer_changes <= 1 && $questioncount >= 5) {
+            $suspicion_score += 20;
+            $reasons[] = 'minimal_corrections';
+        }
+        
+        // 2. TIMING CONSISTENCY CHECK (Too consistent = robotic)
+        $timing_variance = self::analyze_timing_consistency($attempt->uniqueid);
+        if ($timing_variance !== null && $timing_variance < 5) {
+            $suspicion_score += 35;
+            $reasons[] = 'suspiciously_consistent_timing';
+        } else if ($timing_variance !== null && $timing_variance < 10) {
+            $suspicion_score += 20;
+            $reasons[] = 'low_timing_variance';
+        }
+        
+        // 3. SEQUENTIAL PATTERN (Perfect order = unusual)
+        $answered_sequentially = self::check_sequential_pattern($attempt->uniqueid, $questioncount);
+        if ($answered_sequentially && $questioncount >= 4) {
+            $suspicion_score += 20;
+            $reasons[] = 'perfect_sequential_answering';
         }
         
         // Log if suspicious (threshold: 50+)
@@ -132,7 +168,8 @@ class observer {
                 $minutes,
                 $questioncount,
                 $grade_percent,
-                $threshold_triggered
+                $threshold_triggered,
+                $attempt->id  // Pass attempt ID for review link
             );
         }
     }
@@ -152,27 +189,30 @@ class observer {
      * @param int $questioncount Number of questions
      * @param float $grade_percent Grade percentage
      * @param string $threshold Threshold description
+     * @param int $attemptid Quiz attempt ID
      */
     private static function log_timing_detection($userid, $courseid, $contextid, $cmid, $quizname, 
                                                   $score, $reasons, $duration, $minutes, 
-                                                  $questioncount, $grade_percent, $threshold) {
+                                                  $questioncount, $grade_percent, $threshold, $attemptid) {
         global $DB;
         
-        // Build page URL to the quiz review
-        $pageurl = new \moodle_url('/mod/quiz/view.php', ['id' => $cmid]);
+        // Build page URL to the quiz attempt review
+        $pageurl = new \moodle_url('/mod/quiz/review.php', [
+            'attempt' => $attemptid
+        ]);
         
         // Create detailed user agent string with timing info
         $user_agent = $_SERVER['HTTP_USER_AGENT'] ?? 'Unknown';
         
-        // Create browser field with timing details and suspicion score
+        // Store suspicion score separately and create detailed browser info
         $browser_info = sprintf(
-            'Score: %d/100 | Time: %.1f min (%d sec) | %d questions | Grade: %.1f%% | %s',
-            $score,
+            'Time: %.1f min (%d sec) | %d questions | Grade: %.1f%% | %s | Reasons: %s',
             $minutes,
             $duration,
             $questioncount,
             $grade_percent,
-            $threshold
+            $threshold,
+            implode(', ', $reasons)
         );
         
         $record = new \stdClass();
@@ -186,6 +226,7 @@ class observer {
         $record->user_agent = $user_agent;
         $record->browser = $browser_info;
         $record->ip_address = $_SERVER['REMOTE_ADDR'] ?? '';
+        $record->suspicion_score = $score; // NEW: Store score in separate field
         $record->timecreated = time();
         
         $DB->insert_record('local_aiagentblock_log', $record);
@@ -195,6 +236,115 @@ class observer {
             self::notify_admin_timing_detection($userid, $courseid, $quizname, $minutes, 
                                                 $grade_percent, $threshold, $pageurl);
         }
+    }
+    
+    /**
+     * Count how many times student changed their answers
+     *
+     * @param int $uniqueid Quiz attempt unique ID
+     * @return int Number of answer changes
+     */
+    private static function count_answer_changes($uniqueid) {
+        global $DB;
+        
+        // Get all question attempts for this quiz attempt
+        $sql = "SELECT qa.id, COUNT(qas.id) as step_count
+                FROM {question_attempts} qa
+                JOIN {question_attempt_steps} qas ON qas.questionattemptid = qa.id
+                WHERE qa.questionusageid = :uniqueid
+                AND qas.state != 'todo'
+                AND qas.state != 'complete'
+                GROUP BY qa.id
+                HAVING COUNT(qas.id) > 1";
+        
+        $results = $DB->get_records_sql($sql, ['uniqueid' => $uniqueid]);
+        
+        // Each question with more than 1 step (excluding initial) = changed answer
+        return count($results);
+    }
+    
+    /**
+     * Analyze timing consistency across questions
+     * Returns variance in seconds - low variance = robotic
+     *
+     * @param int $uniqueid Quiz attempt unique ID
+     * @return float|null Variance in timing, or null if can't calculate
+     */
+    private static function analyze_timing_consistency($uniqueid) {
+        global $DB;
+        
+        // Get timestamps for each question's completion
+        $sql = "SELECT qa.slot, MIN(qas.timecreated) as start_time, MAX(qas.timecreated) as end_time
+                FROM {question_attempts} qa
+                JOIN {question_attempt_steps} qas ON qas.questionattemptid = qa.id
+                WHERE qa.questionusageid = :uniqueid
+                GROUP BY qa.slot
+                ORDER BY qa.slot";
+        
+        $questions = $DB->get_records_sql($sql, ['uniqueid' => $uniqueid]);
+        
+        if (count($questions) < 3) {
+            return null; // Need at least 3 questions to calculate variance
+        }
+        
+        // Calculate time spent on each question
+        $times = [];
+        foreach ($questions as $q) {
+            $time_spent = $q->end_time - $q->start_time;
+            if ($time_spent > 0) { // Ignore questions answered instantly
+                $times[] = $time_spent;
+            }
+        }
+        
+        if (count($times) < 3) {
+            return null;
+        }
+        
+        // Calculate variance
+        $mean = array_sum($times) / count($times);
+        $squared_diffs = array_map(function($x) use ($mean) {
+            return pow($x - $mean, 2);
+        }, $times);
+        $variance = sqrt(array_sum($squared_diffs) / count($times));
+        
+        return $variance;
+    }
+    
+    /**
+     * Check if questions were answered in perfect sequential order
+     *
+     * @param int $uniqueid Quiz attempt unique ID
+     * @param int $total_questions Total number of questions
+     * @return bool True if answered in perfect order 1,2,3,4,5...
+     */
+    private static function check_sequential_pattern($uniqueid, $total_questions) {
+        global $DB;
+        
+        if ($total_questions < 4) {
+            return false; // Too few questions to judge
+        }
+        
+        // Get the order in which questions were first answered
+        $sql = "SELECT qa.slot, MIN(qas.timecreated) as first_answer
+                FROM {question_attempts} qa
+                JOIN {question_attempt_steps} qas ON qas.questionattemptid = qa.id
+                WHERE qa.questionusageid = :uniqueid
+                AND qas.state != 'todo'
+                GROUP BY qa.slot
+                ORDER BY first_answer";
+        
+        $order = $DB->get_records_sql($sql, ['uniqueid' => $uniqueid]);
+        
+        // Check if slots are in perfect sequential order
+        $expected_slot = 1;
+        foreach ($order as $q) {
+            if ($q->slot != $expected_slot) {
+                return false; // Not sequential
+            }
+            $expected_slot++;
+        }
+        
+        return true; // Perfect sequential order
     }
     
     /**
