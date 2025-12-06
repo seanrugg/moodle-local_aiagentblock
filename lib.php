@@ -55,8 +55,10 @@ function local_aiagentblock_before_standard_head_html_generation() {
         }
     }
     
-    // Inject client-side detection JavaScript
-    return \local_aiagentblock\detector::get_detection_js();
+    // Load AMD module for client-side detection
+    $PAGE->requires->js_call_amd('local_aiagentblock/detector', 'init');
+    
+    return '';
 }
 
 /**
@@ -331,4 +333,77 @@ function local_aiagentblock_coursemodule_definition_after_data($formwrapper, $mf
         $setting = local_aiagentblock_get_activity_setting($cm->id);
         $mform->setDefault('aiagentblock_protection', $setting);
     }
+}
+
+/**
+ * This function extends the course reset form with AI Agent Blocker options
+ *
+ * @param MoodleQuickForm $mform form passed by reference
+ */
+function local_aiagentblock_reset_course_form_definition(&$mform) {
+    $mform->addElement('header', 'aiagentblockheader', 
+        get_string('pluginname', 'local_aiagentblock'));
+    
+    $mform->addElement('checkbox', 'reset_aiagentblock_logs', 
+        get_string('reset_logs', 'local_aiagentblock'));
+    
+    $mform->addElement('checkbox', 'reset_aiagentblock_settings', 
+        get_string('reset_settings', 'local_aiagentblock'));
+}
+
+/**
+ * This function is used to define default values for the course reset form
+ *
+ * @param stdClass $course the course being reset
+ * @return array default values for the form
+ */
+function local_aiagentblock_reset_course_form_defaults($course) {
+    return [
+        'reset_aiagentblock_logs' => 0,
+        'reset_aiagentblock_settings' => 0
+    ];
+}
+
+/**
+ * This function performs the actual reset of AI Agent Blocker data
+ *
+ * @param stdClass $data data from the reset form
+ * @return array status array
+ */
+function local_aiagentblock_reset_userdata($data) {
+    global $DB;
+    
+    $status = [];
+    $componentstr = get_string('pluginname', 'local_aiagentblock');
+    
+    if (!empty($data->reset_aiagentblock_logs)) {
+        $count = $DB->count_records('local_aiagentblock_log', ['courseid' => $data->courseid]);
+        $DB->delete_records('local_aiagentblock_log', ['courseid' => $data->courseid]);
+        
+        $status[] = [
+            'component' => $componentstr,
+            'item' => get_string('reset_logs', 'local_aiagentblock'),
+            'error' => false
+        ];
+    }
+    
+    if (!empty($data->reset_aiagentblock_settings)) {
+        // Delete course-level settings
+        $DB->delete_records('local_aiagentblock_course', ['courseid' => $data->courseid]);
+        
+        // Delete activity-level settings for this course
+        $sql = "DELETE FROM {local_aiagentblock_activity}
+                WHERE cmid IN (
+                    SELECT id FROM {course_modules} WHERE course = ?
+                )";
+        $DB->execute($sql, [$data->courseid]);
+        
+        $status[] = [
+            'component' => $componentstr,
+            'item' => get_string('reset_settings', 'local_aiagentblock'),
+            'error' => false
+        ];
+    }
+    
+    return $status;
 }
