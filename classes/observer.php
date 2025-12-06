@@ -204,13 +204,15 @@ class observer {
         // Create detailed user agent string with timing info
         $user_agent = $_SERVER['HTTP_USER_AGENT'] ?? 'Unknown';
         
-        // Store suspicion score separately and create detailed browser info
+        // Create browser field with timing details and debug info
         $browser_info = sprintf(
-            'Time: %.1f min (%d sec) | %d questions | Grade: %.1f%% | %s | Reasons: %s',
+            'Time: %.1f min (%d sec) | %d questions | Grade: %.1f%% (raw: %.2f/%.2f) | %s | Reasons: %s',
             $minutes,
             $duration,
             $questioncount,
             $grade_percent,
+            $attempt->sumgrades ?? 0,
+            $quiz->sumgrades ?? 0,
             $threshold,
             implode(', ', $reasons)
         );
