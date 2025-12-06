@@ -93,4 +93,14 @@ if ($hassiteconfig) {
         4
     ));
     
+    // Add link to deletion management page
+    $ADMIN->add(
+        'localplugins',
+        new admin_externalpage(
+            'local_aiagentblock_delete',
+            get_string('delete_records', 'local_aiagentblock'),
+            new moodle_url('/local/aiagentblock/delete_records.php'),
+            'local/aiagentblock:configure'
+        )
+    );
 }
