@@ -85,6 +85,101 @@ function xmldb_local_aiagentblock_upgrade($oldversion) {
         
         upgrade_plugin_savepoint(true, 2025120502, 'local', 'aiagentblock');
     }
+    
+    // Add comprehensive behavioral analysis columns
+    if ($oldversion < 2025120503) {
+        $table = new xmldb_table('local_aiagentblock_log');
+        
+        // Browser details
+        $field = new xmldb_field('browser_version', XMLDB_TYPE_CHAR, '50', null, 
+            null, null, null, 'browser');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        
+        $field = new xmldb_field('os', XMLDB_TYPE_CHAR, '100', null, 
+            null, null, null, 'browser_version');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        
+        $field = new xmldb_field('device_type', XMLDB_TYPE_CHAR, '50', null, 
+            null, null, null, 'os');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        
+        // Quiz metrics
+        $field = new xmldb_field('duration_seconds', XMLDB_TYPE_INTEGER, '10', null, 
+            null, null, null, 'protection_level');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        
+        $field = new xmldb_field('duration_minutes', XMLDB_TYPE_NUMBER, '10, 2', null, 
+            null, null, null, 'duration_seconds');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        
+        $field = new xmldb_field('question_count', XMLDB_TYPE_INTEGER, '5', null, 
+            null, null, null, 'duration_minutes');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        
+        $field = new xmldb_field('grade_percent', XMLDB_TYPE_NUMBER, '5, 2', null, 
+            null, null, null, 'question_count');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        
+        $field = new xmldb_field('answer_changes', XMLDB_TYPE_INTEGER, '5', null, 
+            null, null, null, 'grade_percent');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        
+        // Timing analysis metrics
+        $field = new xmldb_field('timing_variance', XMLDB_TYPE_NUMBER, '10, 2', null, 
+            null, null, null, 'answer_changes');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        
+        $field = new xmldb_field('timing_std_dev', XMLDB_TYPE_NUMBER, '10, 2', null, 
+            null, null, null, 'timing_variance');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        
+        $field = new xmldb_field('timing_mean', XMLDB_TYPE_NUMBER, '10, 2', null, 
+            null, null, null, 'timing_std_dev');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        
+        $field = new xmldb_field('sequential_order', XMLDB_TYPE_INTEGER, '1', null, 
+            null, null, '0', 'timing_mean');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        
+        // Detection details
+        $field = new xmldb_field('detection_reasons', XMLDB_TYPE_TEXT, null, null, 
+            null, null, null, 'sequential_order');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        
+        $field = new xmldb_field('behavior_flags', XMLDB_TYPE_TEXT, null, null, 
+            null, null, null, 'detection_reasons');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        
+        upgrade_plugin_savepoint(true, 2025120503, 'local', 'aiagentblock');
+    }
 
     return true;
 }
