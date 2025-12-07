@@ -115,6 +115,30 @@ class detector {
     }
     
     /**
+     * Check if user agent string indicates an AI agent (public method for observer)
+     *
+     * @param string $user_agent User agent string to check
+     * @return bool True if AI agent detected
+     */
+    public static function is_ai_user_agent($user_agent = null) {
+        if ($user_agent === null) {
+            $user_agent = $_SERVER['HTTP_USER_AGENT'] ?? '';
+        }
+        
+        if (empty($user_agent)) {
+            return false;
+        }
+        
+        foreach (self::$agent_patterns as $pattern) {
+            if (preg_match($pattern, $user_agent)) {
+                return true;
+            }
+        }
+        
+        return false;
+    }
+    
+    /**
      * Check user agent against known patterns
      *
      * @return bool True if AI agent detected
@@ -124,15 +148,7 @@ class detector {
             return false;
         }
         
-        $user_agent = $_SERVER['HTTP_USER_AGENT'];
-        
-        foreach (self::$agent_patterns as $pattern) {
-            if (preg_match($pattern, $user_agent)) {
-                return true;
-            }
-        }
-        
-        return false;
+        return self::is_ai_user_agent($_SERVER['HTTP_USER_AGENT']);
     }
     
     /**
@@ -222,6 +238,7 @@ class detector {
         $record->user_agent = $_SERVER['HTTP_USER_AGENT'] ?? '';
         $record->browser = $browser;
         $record->ip_address = $_SERVER['REMOTE_ADDR'] ?? '';
+        $record->suspicion_score = 50; // Default score for basic detection
         $record->timecreated = time();
         
         $DB->insert_record('local_aiagentblock_log', $record);
