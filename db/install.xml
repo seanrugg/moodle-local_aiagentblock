@@ -1,67 +1,76 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<XMLDB PATH="local/aiagentblock/db" VERSION="20241201" COMMENT="XMLDB file for Moodle local/aiagentblock"
+<XMLDB PATH="local/aiagentblock/db" VERSION="20241207" COMMENT="XMLDB file for Moodle local/aiagentblock"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:noNamespaceSchemaLocation="../../../lib/xmldb/xmldb.xsd"
 >
   <TABLES>
-    <!-- Detection log table -->
-    <TABLE NAME="local_aiagentblock_log" COMMENT="Logs all AI agent detection events">
+    <TABLE NAME="local_aiagentblock_log" COMMENT="Logs AI agent detection events with comprehensive behavioral metrics">
       <FIELDS>
         <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
-        <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="User ID of student"/>
-        <FIELD NAME="courseid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Course where detection occurred"/>
-        <FIELD NAME="contextid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Context ID of page/activity"/>
-        <FIELD NAME="cmid" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Course module ID if activity-specific"/>
-        <FIELD NAME="pageurl" TYPE="char" LENGTH="1333" NOTNULL="true" SEQUENCE="false" COMMENT="Full URL where detection occurred"/>
-        <FIELD NAME="protection_level" TYPE="char" LENGTH="20" NOTNULL="true" SEQUENCE="false" COMMENT="course or activity level protection"/>
-        <FIELD NAME="detection_method" TYPE="char" LENGTH="50" NOTNULL="true" SEQUENCE="false" COMMENT="Method used: user_agent, headers, client_side"/>
+        <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="User ID who was detected"/>
+        <FIELD NAME="courseid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="Course where detection occurred"/>
+        <FIELD NAME="contextid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="Context ID"/>
+        <FIELD NAME="cmid" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Course module ID (activity)"/>
+        <FIELD NAME="pageurl" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="URL where detection occurred"/>
         <FIELD NAME="user_agent" TYPE="text" NOTNULL="true" SEQUENCE="false" COMMENT="Full user agent string"/>
-        <FIELD NAME="browser" TYPE="char" LENGTH="255" NOTNULL="false" SEQUENCE="false" COMMENT="Browser name and version"/>
-        <FIELD NAME="ip_address" TYPE="char" LENGTH="45" NOTNULL="true" SEQUENCE="false" COMMENT="IP address (supports IPv6)"/>
-        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Timestamp of detection"/>
+        <FIELD NAME="browser" TYPE="char" LENGTH="255" NOTNULL="false" SEQUENCE="false" COMMENT="Browser name"/>
+        <FIELD NAME="browser_version" TYPE="char" LENGTH="50" NOTNULL="false" SEQUENCE="false" COMMENT="Browser version"/>
+        <FIELD NAME="os" TYPE="char" LENGTH="100" NOTNULL="false" SEQUENCE="false" COMMENT="Operating system"/>
+        <FIELD NAME="device_type" TYPE="char" LENGTH="50" NOTNULL="false" SEQUENCE="false" COMMENT="Device type (Desktop/Mobile/Tablet)"/>
+        <FIELD NAME="ip_address" TYPE="char" LENGTH="45" NOTNULL="true" SEQUENCE="false" COMMENT="IP address"/>
+        <FIELD NAME="suspicion_score" TYPE="int" LENGTH="3" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Suspicion score 0-100"/>
+        <FIELD NAME="detection_method" TYPE="char" LENGTH="50" NOTNULL="true" SEQUENCE="false" COMMENT="Method used for detection"/>
+        <FIELD NAME="protection_level" TYPE="char" LENGTH="20" NOTNULL="true" SEQUENCE="false" COMMENT="course or activity"/>
+        <FIELD NAME="duration_seconds" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Quiz duration in seconds"/>
+        <FIELD NAME="duration_minutes" TYPE="number" LENGTH="10" NOTNULL="false" DECIMALS="2" SEQUENCE="false" COMMENT="Quiz duration in minutes"/>
+        <FIELD NAME="question_count" TYPE="int" LENGTH="5" NOTNULL="false" SEQUENCE="false" COMMENT="Number of questions in quiz"/>
+        <FIELD NAME="grade_percent" TYPE="number" LENGTH="5" NOTNULL="false" DECIMALS="2" SEQUENCE="false" COMMENT="Grade as percentage"/>
+        <FIELD NAME="answer_changes" TYPE="int" LENGTH="5" NOTNULL="false" SEQUENCE="false" COMMENT="Number of answer corrections"/>
+        <FIELD NAME="timing_variance" TYPE="number" LENGTH="10" NOTNULL="false" DECIMALS="2" SEQUENCE="false" COMMENT="Coefficient of variation for question timing"/>
+        <FIELD NAME="timing_std_dev" TYPE="number" LENGTH="10" NOTNULL="false" DECIMALS="2" SEQUENCE="false" COMMENT="Standard deviation of question timing"/>
+        <FIELD NAME="timing_mean" TYPE="number" LENGTH="10" NOTNULL="false" DECIMALS="2" SEQUENCE="false" COMMENT="Mean time per question"/>
+        <FIELD NAME="sequential_order" TYPE="int" LENGTH="1" NOTNULL="false" DEFAULT="0" SEQUENCE="false" COMMENT="1 if answered sequentially"/>
+        <FIELD NAME="detection_reasons" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="JSON array of detection reasons"/>
+        <FIELD NAME="behavior_flags" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="JSON array of behavioral flags"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="Timestamp"/>
       </FIELDS>
       <KEYS>
         <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
         <KEY NAME="userid" TYPE="foreign" FIELDS="userid" REFTABLE="user" REFFIELDS="id"/>
         <KEY NAME="courseid" TYPE="foreign" FIELDS="courseid" REFTABLE="course" REFFIELDS="id"/>
-        <KEY NAME="contextid" TYPE="foreign" FIELDS="contextid" REFTABLE="context" REFFIELDS="id"/>
       </KEYS>
       <INDEXES>
-        <INDEX NAME="courseid_timecreated" UNIQUE="false" FIELDS="courseid, timecreated" COMMENT="Fast course report queries"/>
-        <INDEX NAME="userid_timecreated" UNIQUE="false" FIELDS="userid, timecreated" COMMENT="Fast user history queries"/>
-        <INDEX NAME="cmid" UNIQUE="false" FIELDS="cmid" COMMENT="Fast activity report queries"/>
+        <INDEX NAME="timecreated" UNIQUE="false" FIELDS="timecreated"/>
+        <INDEX NAME="suspicion_score" UNIQUE="false" FIELDS="suspicion_score"/>
+        <INDEX NAME="courseid_timecreated" UNIQUE="false" FIELDS="courseid, timecreated"/>
       </INDEXES>
     </TABLE>
-
-    <!-- Course-level settings table -->
+    
     <TABLE NAME="local_aiagentblock_course" COMMENT="Course-level AI agent protection settings">
       <FIELDS>
         <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
-        <FIELD NAME="courseid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="Course ID"/>
-        <FIELD NAME="enabled" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1" SEQUENCE="false" COMMENT="1=enabled, 0=disabled"/>
-        <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Last modified timestamp"/>
-        <FIELD NAME="usermodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="User who last modified"/>
+        <FIELD NAME="courseid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="enabled" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1" SEQUENCE="false"/>
+        <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="usermodified" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
       </FIELDS>
       <KEYS>
         <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
         <KEY NAME="courseid" TYPE="foreign-unique" FIELDS="courseid" REFTABLE="course" REFFIELDS="id"/>
-        <KEY NAME="usermodified" TYPE="foreign" FIELDS="usermodified" REFTABLE="user" REFFIELDS="id"/>
       </KEYS>
     </TABLE>
-
-    <!-- Activity-level settings table -->
+    
     <TABLE NAME="local_aiagentblock_activity" COMMENT="Activity-level AI agent protection settings">
       <FIELDS>
         <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
         <FIELD NAME="cmid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="Course module ID"/>
         <FIELD NAME="setting" TYPE="char" LENGTH="20" NOTNULL="true" DEFAULT="default" SEQUENCE="false" COMMENT="default, enabled, or disabled"/>
-        <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Last modified timestamp"/>
-        <FIELD NAME="usermodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="User who last modified"/>
+        <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="usermodified" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
       </FIELDS>
       <KEYS>
         <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
         <KEY NAME="cmid" TYPE="foreign-unique" FIELDS="cmid" REFTABLE="course_modules" REFFIELDS="id"/>
-        <KEY NAME="usermodified" TYPE="foreign" FIELDS="usermodified" REFTABLE="user" REFFIELDS="id"/>
       </KEYS>
     </TABLE>
   </TABLES>
