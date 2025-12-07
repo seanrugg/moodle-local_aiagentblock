@@ -225,13 +225,21 @@ if (empty($records)) {
             $suspicion_display = $suspicion_score;
         }
         
-        // Timing Variance (Coefficient of Variation)
-        $timing_variance_display = $record->timing_variance !== null ? 
-            number_format($record->timing_variance, 1) . '%' : 'N/A';
-        
-        if (!$table->is_downloading() && $record->timing_variance !== null && $record->timing_variance < 15) {
-            $timing_variance_display = html_writer::tag('span', $timing_variance_display, 
-                ['class' => 'badge badge-warning', 'title' => 'Very consistent timing']);
+        // Timing Variance (Coefficient of Variation) - FIXED NULL HANDLING
+        if ($record->timing_variance !== null && $record->timing_variance !== '') {
+            $timing_variance_display = number_format($record->timing_variance, 1) . '%';
+            
+            if (!$table->is_downloading() && $record->timing_variance < 15) {
+                $timing_variance_display = html_writer::tag('span', $timing_variance_display, 
+                    ['class' => 'badge badge-warning', 'title' => 'Very consistent timing']);
+            }
+        } else {
+            // Check if this is old data before timing_variance was added
+            if ($record->question_count == 1) {
+                $timing_variance_display = '0.0%'; // Single question = no variance
+            } else {
+                $timing_variance_display = 'N/A'; // Truly missing data
+            }
         }
         
         // Answer changes
