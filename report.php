@@ -15,7 +15,7 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * AI Agent Detection Report for a course
+ * AI Agent Detection Report for a course - Enhanced for behavioral analysis
  *
  * @package    local_aiagentblock
  * @copyright  2024
@@ -44,37 +44,48 @@ $PAGE->set_heading($course->fullname);
 // Define the table
 $table = new flexible_table('local_aiagentblock_report');
 
-// Define columns - EXACTLY 8 columns
+// Define columns - comprehensive data for analysis
 $table->define_columns([
     'username',
     'timecreated',
-    'ipaddress',
-    'agent',
-    'browser',
     'location',
+    'duration_minutes',
+    'question_count',
+    'grade_percent',
     'suspicionscore',
-    'protectionlevel',
-    'detectionmethod'
+    'timing_variance',
+    'answer_changes',
+    'sequential_order',
+    'browser',
+    'os',
+    'device_type',
+    'ipaddress',
+    'flags'
 ]);
 
-// Define headers - EXACTLY 9 headers to match 9 columns
+// Define headers
 $table->define_headers([
     get_string('col_username', 'local_aiagentblock'),
-    get_string('col_timestamp', 'local_aiagentblock'),
-    get_string('col_ipaddress', 'local_aiagentblock'),
-    get_string('col_useragent', 'local_aiagentblock'),
-    get_string('col_browser', 'local_aiagentblock'),
-    get_string('col_location', 'local_aiagentblock'),
-    get_string('col_suspicionscore', 'local_aiagentblock'),
-    get_string('col_protectionlevel', 'local_aiagentblock'),
-    get_string('col_detectionmethod', 'local_aiagentblock')
+    'Date/Time',
+    'Activity',
+    'Duration (min)',
+    'Questions',
+    'Grade %',
+    'Suspicion Score',
+    'Timing CV %',
+    'Answer Changes',
+    'Sequential',
+    'Browser',
+    'OS',
+    'Device',
+    'IP Address',
+    'Behavior Flags'
 ]);
 
 $table->define_baseurl($PAGE->url);
 $table->sortable(true, 'timecreated', SORT_DESC);
 $table->no_sorting('location');
-$table->no_sorting('agent');
-$table->no_sorting('browser');
+$table->no_sorting('flags');
 $table->collapsible(false);
 $table->is_downloadable(true);
 $table->show_download_buttons_at([TABLE_P_BOTTOM]);
@@ -83,9 +94,8 @@ $table->show_download_buttons_at([TABLE_P_BOTTOM]);
 $table->setup();
 
 // Handle download
-if ($table->is_downloading($download, 'ai_agent_detections_' . $course->shortname, 
-    get_string('report_course_title', 'local_aiagentblock', $course->shortname))) {
-    
+if ($table->is_downloading($download, 'ai_agent_analysis_' . $course->shortname, 
+    'AI Agent Detection Analysis - ' . $course->shortname)) {
     // Don't output header for downloads
 } else {
     echo $OUTPUT->header();
@@ -123,6 +133,27 @@ if (empty($records)) {
             get_string('detections_found', 'local_aiagentblock', count($records)),
             \core\output\notification::NOTIFY_WARNING
         );
+        
+        // Add summary statistics
+        $total_records = count($records);
+        $high_suspicion = 0;
+        $perfect_scores = 0;
+        $very_fast = 0;
+        
+        foreach ($records as $r) {
+            if ($r->suspicion_score >= 70) $high_suspicion++;
+            if ($r->grade_percent >= 95) $perfect_scores++;
+            if ($r->duration_minutes < 2) $very_fast++;
+        }
+        
+        echo html_writer::div('', 'mb-3');
+        echo html_writer::start_div('alert alert-info');
+        echo html_writer::tag('h5', 'Summary Statistics');
+        echo html_writer::tag('p', "Total Detections: {$total_records}");
+        echo html_writer::tag('p', "High Suspicion (≥70): {$high_suspicion}");
+        echo html_writer::tag('p', "Perfect/Near-Perfect Scores: {$perfect_scores}");
+        echo html_writer::tag('p', "Very Fast Completion (<2 min): {$very_fast}");
+        echo html_writer::end_div();
     }
     
     foreach ($records as $record) {
@@ -137,112 +168,145 @@ if (empty($records)) {
                         html_writer::tag('div', $user->username, ['class' => 'small text-muted']);
         }
         
-        // Timestamp with link to attempt review (if pageurl points to review)
+        // Timestamp with link to attempt review
         $timestamp_display = userdate($record->timecreated, get_string('strftimedatetimeshort'));
         if (!$table->is_downloading() && !empty($record->pageurl) && strpos($record->pageurl, '/mod/quiz/review.php') !== false) {
             $timestamp_display = html_writer::link($record->pageurl, $timestamp_display, ['title' => 'View quiz attempt']);
         }
         
-        // IP Address
-        $ipaddress = $record->ip_address;
-        
-        // AI Agent identification
-        $agent = \local_aiagentblock\detector::identify_agent($record->user_agent);
-        if (!$table->is_downloading()) {
-            $agent .= html_writer::tag('div', 
-                html_writer::tag('small', s($record->user_agent), ['class' => 'text-muted']),
-                ['class' => 'mt-1']
-            );
-        }
-        
-        // Browser info
-        $browser = $record->browser ?: get_string('unknown', 'moodle');
-        
-        // Location (course page or activity)
+        // Location (activity)
         if ($record->cmid) {
             $cm = get_coursemodule_from_id('', $record->cmid);
             if ($cm) {
                 if ($table->is_downloading()) {
-                    $location = $cm->name . ' (' . get_string('modulename', $cm->modname) . ')';
+                    $location = $cm->name;
                 } else {
                     $moduleurl = new moodle_url('/mod/' . $cm->modname . '/view.php', ['id' => $cm->id]);
                     $location = html_writer::link($moduleurl, $cm->name);
-                    $location .= html_writer::tag('div', 
-                        get_string('modulename', $cm->modname), 
-                        ['class' => 'small text-muted']
-                    );
                 }
             } else {
-                $location = get_string('deletedactivity', 'moodle');
+                $location = 'Deleted activity';
             }
         } else {
-            $location = get_string('course') . ': ' . $course->shortname;
+            $location = 'Course: ' . $course->shortname;
         }
         
-        // Suspicion Score with color coding (cap at 100 for display)
-        $suspicion_score = isset($record->suspicion_score) ? $record->suspicion_score : 0;
-        $display_score = min($suspicion_score, 100); // Cap at 100 for display
+        // Duration
+        $duration_display = $record->duration_minutes !== null ? 
+            number_format($record->duration_minutes, 1) : 'N/A';
+        
+        // Question count
+        $question_count_display = $record->question_count !== null ? 
+            $record->question_count : 'N/A';
+        
+        // Grade percentage
+        $grade_display = $record->grade_percent !== null ? 
+            number_format($record->grade_percent, 1) . '%' : 'N/A';
+        
+        if (!$table->is_downloading() && $record->grade_percent >= 95) {
+            $grade_display = html_writer::tag('strong', $grade_display, ['class' => 'text-success']);
+        }
+        
+        // Suspicion Score with color coding
+        $suspicion_score = $record->suspicion_score;
         
         if (!$table->is_downloading()) {
-            $score_class = '';
-            $confidence_text = '';
-            if ($suspicion_score >= 90) {
+            if ($suspicion_score >= 80) {
                 $score_class = 'badge badge-danger';
-                $confidence_text = 'Critical';
-            } else if ($suspicion_score >= 70) {
+            } else if ($suspicion_score >= 60) {
                 $score_class = 'badge badge-warning';
-                $confidence_text = 'High';
-            } else if ($suspicion_score >= 50) {
+            } else if ($suspicion_score >= 40) {
                 $score_class = 'badge badge-info';
-                $confidence_text = 'Moderate';
             } else {
                 $score_class = 'badge badge-secondary';
-                $confidence_text = 'Low';
             }
-            $suspicion_display = html_writer::tag('span', $display_score . '%', ['class' => $score_class]) .
-                                html_writer::tag('div', $confidence_text, ['class' => 'small text-muted']);
+            $suspicion_display = html_writer::tag('span', $suspicion_score, ['class' => $score_class]);
         } else {
-            $suspicion_display = $display_score . '% (' . ($suspicion_score >= 90 ? 'Critical' : 
-                                ($suspicion_score >= 70 ? 'High' : 
-                                ($suspicion_score >= 50 ? 'Moderate' : 'Low'))) . ')';
+            $suspicion_display = $suspicion_score;
         }
         
-        // Protection level
-        if ($record->protection_level === 'activity') {
-            $protectionlevel = get_string('protection_level_activity', 'local_aiagentblock');
-        } else {
-            $protectionlevel = get_string('protection_level_course', 'local_aiagentblock');
+        // Timing Variance (Coefficient of Variation)
+        $timing_variance_display = $record->timing_variance !== null ? 
+            number_format($record->timing_variance, 1) . '%' : 'N/A';
+        
+        if (!$table->is_downloading() && $record->timing_variance !== null && $record->timing_variance < 15) {
+            $timing_variance_display = html_writer::tag('span', $timing_variance_display, 
+                ['class' => 'badge badge-warning', 'title' => 'Very consistent timing']);
         }
         
-        // Detection method
-        switch ($record->detection_method) {
-            case 'user_agent':
-                $detectionmethod = get_string('detection_method_user_agent', 'local_aiagentblock');
-                break;
-            case 'headers':
-                $detectionmethod = get_string('detection_method_headers', 'local_aiagentblock');
-                break;
-            case 'client_side':
-                $detectionmethod = get_string('detection_method_client_side', 'local_aiagentblock');
-                break;
-            case 'timing_analysis':
-                $detectionmethod = get_string('detection_method_timing', 'local_aiagentblock');
-                break;
-            default:
-                $detectionmethod = $record->detection_method;
+        // Answer changes
+        $answer_changes_display = $record->answer_changes !== null ? 
+            $record->answer_changes : 'N/A';
+        
+        if (!$table->is_downloading() && $record->answer_changes === 0) {
+            $answer_changes_display = html_writer::tag('span', '0', 
+                ['class' => 'badge badge-info', 'title' => 'No corrections made']);
         }
         
-        // Add row with EXACTLY 9 values to match 9 columns
+        // Sequential order
+        $sequential_display = $record->sequential_order ? 'Yes' : 'No';
+        
+        // Browser
+        $browser_display = $record->browser ?: 'Unknown';
+        if ($record->browser_version) {
+            $browser_display .= ' ' . $record->browser_version;
+        }
+        
+        // OS
+        $os_display = $record->os ?: 'Unknown';
+        
+        // Device type
+        $device_display = $record->device_type ?: 'Unknown';
+        
+        // IP Address
+        $ipaddress = $record->ip_address;
+        
+        // Behavior flags
+        $flags_display = '';
+        if ($record->behavior_flags) {
+            $flags = json_decode($record->behavior_flags, true);
+            if ($flags) {
+                if ($table->is_downloading()) {
+                    $flags_display = implode(', ', $flags);
+                } else {
+                    $flag_badges = [];
+                    foreach ($flags as $flag) {
+                        $badge_class = 'badge-secondary';
+                        
+                        // Color code important flags
+                        if (in_array($flag, ['IMPOSSIBLE_TIME', 'AI_USER_AGENT', 'VERY_LOW_VARIANCE'])) {
+                            $badge_class = 'badge-danger';
+                        } else if (in_array($flag, ['VERY_FAST', 'PERFECT_AND_FAST', 'NO_CORRECTIONS'])) {
+                            $badge_class = 'badge-warning';
+                        } else if (in_array($flag, ['LOW_VARIANCE', 'HIGH_SCORE_FAST'])) {
+                            $badge_class = 'badge-info';
+                        }
+                        
+                        $flag_badges[] = html_writer::tag('span', $flag, 
+                            ['class' => 'badge ' . $badge_class . ' mr-1']);
+                    }
+                    $flags_display = implode(' ', $flag_badges);
+                }
+            }
+        }
+        
+        // Add row with all values
         $table->add_data([
             $username,
             $timestamp_display,
-            $ipaddress,
-            $agent,
-            $browser,
             $location,
+            $duration_display,
+            $question_count_display,
+            $grade_display,
             $suspicion_display,
-            $protectionlevel,
-            $detectionmethod
+            $timing_variance_display,
+            $answer_changes_display,
+            $sequential_display,
+            $browser_display,
+            $os_display,
+            $device_display,
+            $ipaddress,
+            $flags_display
         ]);
     }
 }
@@ -250,6 +314,16 @@ if (empty($records)) {
 $table->finish_output();
 
 if (!$table->is_downloading()) {
+    // Add explanation of metrics
+    echo html_writer::div('', 'mt-4');
+    echo html_writer::start_div('alert alert-secondary');
+    echo html_writer::tag('h5', 'Metric Explanations:');
+    echo html_writer::tag('p', '<strong>Timing CV %:</strong> Coefficient of Variation - measures consistency of time spent per question. Lower values (<15%) indicate very consistent timing.');
+    echo html_writer::tag('p', '<strong>Answer Changes:</strong> Number of times answers were modified. Zero changes may indicate confidence or pre-knowledge.');
+    echo html_writer::tag('p', '<strong>Sequential:</strong> Whether questions were answered in order (most students do this).');
+    echo html_writer::tag('p', '<strong>Behavior Flags:</strong> Detailed indicators used for detection. Multiple red flags increase suspicion score.');
+    echo html_writer::end_div();
+    
     // Add link back to course
     echo html_writer::div('', 'mt-3');
     echo html_writer::tag('a',
