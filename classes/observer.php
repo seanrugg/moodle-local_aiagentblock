@@ -17,8 +17,7 @@
 /**
  * Event observers for AI Agent Blocker plugin
  * 
- * UPDATED: Focus on comprehensive data collection for analysis and refinement
- * More conservative thresholds to reduce false positives
+ * COMPREHENSIVE DATA COLLECTION MODE: Logs ALL quiz attempts for behavioral analysis
  *
  * @package    local_aiagentblock
  * @copyright  2024
@@ -36,6 +35,8 @@ class observer {
     
     /**
      * Observe quiz attempt submitted event for timing analysis
+     * 
+     * DATA COLLECTION MODE: Logs ALL attempts regardless of suspicion score
      *
      * @param \mod_quiz\event\attempt_submitted $event
      */
@@ -173,6 +174,9 @@ class observer {
             $suspicion_score += 30;
             $reasons[] = 'fast_completion';
             $flags[] = 'FAST';
+        } else {
+            // Mark as normal speed for analysis
+            $flags[] = 'NORMAL_SPEED';
         }
         
         // 3. NO ANSWER CORRECTIONS (only flag if ALSO fast)
@@ -185,6 +189,8 @@ class observer {
                 // Just note it, don't add to score
                 $flags[] = 'NO_CORRECTIONS_SLOW';
             }
+        } else if ($answer_changes > 0) {
+            $flags[] = 'HAS_CORRECTIONS';
         }
         
         // 4. EXTREMELY CONSISTENT TIMING (only flag if ALSO fast)
@@ -201,6 +207,10 @@ class observer {
             } else if ($timing_variance < 20) {
                 // Just note it
                 $flags[] = 'MODERATE_VARIANCE';
+            } else if ($timing_variance < 40) {
+                $flags[] = 'NORMAL_VARIANCE';
+            } else {
+                $flags[] = 'HIGH_VARIANCE';
             }
         }
         
@@ -213,17 +223,19 @@ class observer {
             $suspicion_score += 10;
             $reasons[] = 'high_score_fast';
             $flags[] = 'HIGH_SCORE_FAST';
+        } else if ($grade_percent >= 90) {
+            $flags[] = 'HIGH_SCORE_NORMAL';
         }
         
         // 6. LOW SCORE + VERY FAST (likely guessing or giving up - less suspicious)
         if ($grade_percent < 50 && $duration < $very_fast_threshold) {
             $suspicion_score -= 20; // REDUCE score - probably not AI
             $flags[] = 'LOW_SCORE_FAST';
+        } else if ($grade_percent < 50) {
+            $flags[] = 'LOW_SCORE_NORMAL';
         }
         
-        // 7. SEQUENTIAL ANSWERING - REMOVED from scoring
-        // Most students answer sequentially - this is NORMAL
-        // We'll track it for analysis but not use it for detection
+        // 7. SEQUENTIAL ANSWERING - Track for analysis only
         if ($sequential_order) {
             $flags[] = 'SEQUENTIAL';
         } else {
@@ -233,7 +245,7 @@ class observer {
         // 8. EXTREMELY HIGH VARIANCE (jumping around wildly - may indicate human)
         if ($timing_variance !== null && $timing_variance > 80) {
             $suspicion_score -= 10; // Reduce score - likely human
-            $flags[] = 'HIGH_VARIANCE';
+            $flags[] = 'EXTREME_VARIANCE';
         }
         
         // =================================================================
@@ -259,56 +271,51 @@ class observer {
         }
         
         // =================================================================
-        // LOG ALL ATTEMPTS FOR ANALYSIS (lowered threshold from 50 to 30)
+        // LOG ALL ATTEMPTS FOR COMPREHENSIVE ANALYSIS
         // =================================================================
         
-        // Log if suspicion score >= 30 OR if interesting behavioral patterns
-        $should_log = ($suspicion_score >= 30) || 
-                      in_array('VERY_LOW_VARIANCE', $flags) ||
-                      in_array('PERFECT_AND_FAST', $flags) ||
-                      in_array('AI_USER_AGENT', $flags) ||
-                      ($duration < $fast_threshold); // Log all fast completions
+        // Build page URL to quiz review
+        $pageurl = new \moodle_url('/mod/quiz/review.php', ['attempt' => $attemptid]);
         
-        if ($should_log) {
-            $log = new \stdClass();
-            $log->userid = $userid;
-            $log->courseid = $courseid;
-            $log->contextid = $event->contextid;
-            $log->cmid = $cmid;
-            $log->pageurl = $event->get_url()->out(false);
-            $log->user_agent = $user_agent;
-            $log->browser = $browser_data['browser_name'];
-            $log->browser_version = $browser_data['browser_version'];
-            $log->os = $browser_data['os'];
-            $log->device_type = $browser_data['device_type'];
-            $log->ip_address = $ip_address;
-            $log->suspicion_score = min($suspicion_score, 100); // Cap at 100
-            $log->detection_method = $detection_method;
-            $log->protection_level = 'course';
-            
-            // Store comprehensive metrics for analysis
-            $log->duration_seconds = $duration;
-            $log->duration_minutes = $minutes;
-            $log->question_count = $questioncount;
-            $log->grade_percent = $grade_percent;
-            $log->answer_changes = $answer_changes;
-            $log->timing_variance = $timing_variance;
-            $log->timing_std_dev = $timing_std_dev;
-            $log->timing_mean = $timing_mean;
-            $log->sequential_order = $sequential_order ? 1 : 0;
-            
-            // Store reasons and flags as JSON for detailed analysis
-            $log->detection_reasons = json_encode($reasons);
-            $log->behavior_flags = json_encode($flags);
-            
-            $log->timecreated = time();
-            
-            $DB->insert_record('local_aiagentblock_log', $log);
-            
-            // Only notify on high-confidence detections (80+)
-            if ($suspicion_score >= 80 && get_config('local_aiagentblock', 'notify_admin')) {
-                self::notify_admin($log, $USER, $quiz);
-            }
+        $log = new \stdClass();
+        $log->userid = $userid;
+        $log->courseid = $courseid;
+        $log->contextid = $event->contextid;
+        $log->cmid = $cmid;
+        $log->pageurl = $pageurl->out(false);
+        $log->user_agent = $user_agent;
+        $log->browser = $browser_data['browser_name'];
+        $log->browser_version = $browser_data['browser_version'];
+        $log->os = $browser_data['os'];
+        $log->device_type = $browser_data['device_type'];
+        $log->ip_address = $ip_address;
+        $log->suspicion_score = min(max($suspicion_score, 0), 100); // Clamp between 0-100
+        $log->detection_method = $detection_method;
+        $log->protection_level = 'course';
+        
+        // Store comprehensive metrics for analysis
+        $log->duration_seconds = $duration;
+        $log->duration_minutes = $minutes;
+        $log->question_count = $questioncount;
+        $log->grade_percent = $grade_percent;
+        $log->answer_changes = $answer_changes;
+        $log->timing_variance = $timing_variance;
+        $log->timing_std_dev = $timing_std_dev;
+        $log->timing_mean = $timing_mean;
+        $log->sequential_order = $sequential_order ? 1 : 0;
+        
+        // Store reasons and flags as JSON for detailed analysis
+        $log->detection_reasons = json_encode($reasons);
+        $log->behavior_flags = json_encode($flags);
+        
+        $log->timecreated = time();
+        
+        // LOG EVERY ATTEMPT - No threshold check
+        $DB->insert_record('local_aiagentblock_log', $log);
+        
+        // Only notify on very high-confidence detections (80+)
+        if ($suspicion_score >= 80 && get_config('local_aiagentblock', 'notify_admin')) {
+            self::notify_admin($log, $USER, $quiz);
         }
     }
     
