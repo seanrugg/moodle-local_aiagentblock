@@ -72,9 +72,20 @@ class observer {
         // Get question count
         $questioncount = $DB->count_records('quiz_slots', ['quizid' => $quiz->id]);
         
-        // Calculate grade percentage
+        // Calculate grade percentage - FIXED LOGIC
         $grade_percent = 0;
-        if ($quiz->sumgrades > 0) {
+        
+        // First try to get from quiz_grades (final grade)
+        $final_grade = $DB->get_record('quiz_grades', [
+            'quiz' => $quiz->id,
+            'userid' => $attempt->userid
+        ]);
+        
+        if ($final_grade && $quiz->grade > 0) {
+            // Use final grade from quiz_grades table
+            $grade_percent = round(($final_grade->grade / $quiz->grade) * 100, 2);
+        } else if ($quiz->sumgrades > 0 && $attempt->sumgrades !== null) {
+            // Fallback: Calculate from attempt's sumgrades
             $grade_percent = round(($attempt->sumgrades / $quiz->sumgrades) * 100, 2);
         }
         
@@ -91,7 +102,7 @@ class observer {
         foreach ($quba->get_slots() as $slot) {
             $qa = $quba->get_question_attempt($slot);
             
-            // Count answer changes (steps > 1 means changes were made)
+            // Count answer changes (steps with answers > 1 means changes were made)
             $steps = $qa->get_step_iterator();
             $step_count = 0;
             $first_answer_time = null;
@@ -112,7 +123,7 @@ class observer {
             }
             
             // Calculate time spent on this question
-            if ($first_answer_time !== null) {
+            if ($first_answer_time !== null && $last_answer_time !== null) {
                 $question_time = $last_answer_time - $first_answer_time;
                 $question_times[] = max(1, $question_time); // Minimum 1 second
                 
@@ -124,7 +135,7 @@ class observer {
             }
         }
         
-        // Calculate timing statistics
+        // Calculate timing statistics - FIXED to handle edge cases
         $timing_variance = null;
         $timing_std_dev = null;
         $timing_mean = null;
@@ -139,10 +150,15 @@ class observer {
             $variance = $variance_sum / count($question_times);
             $timing_std_dev = sqrt($variance);
             
-            // Coefficient of variation (CV) - more reliable than raw variance
+            // Coefficient of variation (CV) - only if mean > 0
             if ($timing_mean > 0) {
-                $timing_variance = ($timing_std_dev / $timing_mean) * 100;
+                $timing_variance = round(($timing_std_dev / $timing_mean) * 100, 2);
             }
+        } else if (count($question_times) == 1) {
+            // Single question - timing variance not applicable but set mean
+            $timing_mean = $question_times[0];
+            $timing_std_dev = 0;
+            $timing_variance = 0;
         }
         
         // Initialize suspicion scoring
