@@ -34,12 +34,15 @@ $context = context_course::instance($courseid);
 require_login($course);
 require_capability('local/aiagentblock:viewreports', $context);
 
-$PAGE->set_url('/local/aiagentblock/report.php', ['id' => $courseid]);
-$PAGE->set_context($context);
-$PAGE->set_course($course);
-$PAGE->set_pagelayout('incourse');
-$PAGE->set_title(get_string('report_title', 'local_aiagentblock'));
-$PAGE->set_heading($course->fullname);
+// CRITICAL: Set up PAGE before any output, but only if not downloading
+if (empty($download)) {
+    $PAGE->set_url('/local/aiagentblock/report.php', ['id' => $courseid]);
+    $PAGE->set_context($context);
+    $PAGE->set_course($course);
+    $PAGE->set_pagelayout('incourse');
+    $PAGE->set_title(get_string('report_title', 'local_aiagentblock'));
+    $PAGE->set_heading($course->fullname);
+}
 
 // Define the table
 $table = new flexible_table('local_aiagentblock_report');
