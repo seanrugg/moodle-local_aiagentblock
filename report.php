@@ -48,13 +48,15 @@ $table->define_columns([
     'timecreated',
     'ipaddress',
     'agent',
-    'browser',
-    'location',
+    'duration',
+    'questions',
+    'grade',
+    'cvpercent',
     'testpages',
-    'stepsperpage',
     'totalsteps',
+    'stepsperpage',
     'suspicionscore',
-    'protectionlevel',
+    'location',
     'detectionmethod'
 ]);
 
@@ -63,24 +65,22 @@ $table->define_headers([
     get_string('col_timestamp', 'local_aiagentblock'),
     get_string('col_ipaddress', 'local_aiagentblock'),
     get_string('col_useragent', 'local_aiagentblock'),
-    get_string('col_browser', 'local_aiagentblock'),
-    get_string('col_location', 'local_aiagentblock'),
+    get_string('col_duration', 'local_aiagentblock'),
+    get_string('col_questions', 'local_aiagentblock'),
+    get_string('col_grade', 'local_aiagentblock'),
+    get_string('col_cvpercent', 'local_aiagentblock'),
     get_string('col_testpages', 'local_aiagentblock'),
-    get_string('col_stepsperpage', 'local_aiagentblock'),
     get_string('col_totalsteps', 'local_aiagentblock'),
+    get_string('col_stepsperpage', 'local_aiagentblock'),
     get_string('col_suspicionscore', 'local_aiagentblock'),
-    get_string('col_protectionlevel', 'local_aiagentblock'),
+    get_string('col_location', 'local_aiagentblock'),
     get_string('col_detectionmethod', 'local_aiagentblock')
 ]);
 
 $table->define_baseurl($PAGE->url);
 $table->sortable(true, 'timecreated', SORT_DESC);
-$table->no_sorting('location');
 $table->no_sorting('agent');
-$table->no_sorting('browser');
-$table->no_sorting('testpages');
-$table->no_sorting('stepsperpage');
-$table->no_sorting('totalsteps');
+$table->no_sorting('location');
 $table->collapsible(false);
 $table->is_downloadable(true);
 $table->show_download_buttons_at([TABLE_P_BOTTOM]);
@@ -156,69 +156,141 @@ if (empty($records)) {
         $agent = \local_aiagentblock\detector::identify_agent($record->user_agent);
         if (!$table->is_downloading()) {
             $agent .= html_writer::tag('div', 
-                html_writer::tag('small', s($record->user_agent), ['class' => 'text-muted']),
+                html_writer::tag('small', s(substr($record->user_agent, 0, 50)) . '...', ['class' => 'text-muted']),
                 ['class' => 'mt-1']
             );
         }
         
-        // Parse browser info to extract metrics
-        $browser_text = $record->browser ?: get_string('unknown', 'moodle');
-        
-        // Extract metrics from browser field using regex
-        $test_pages = 'N/A';
-        $steps_per_page = 'N/A';
-        $total_steps = 'N/A';
-        
-        // Pattern: "Pages: 3/5" means 3 question pages out of 5 total
-        if (preg_match('/Pages:\s*(\d+)\/(\d+)/', $browser_text, $matches)) {
-            $question_pages = $matches[1];
-            $total_pages = $matches[2];
-            $test_pages = $question_pages . '/' . $total_pages;
-        }
-        
-        // Pattern: "Steps: 15 (3.0/pg)"
-        if (preg_match('/Steps:\s*(\d+)\s*\(([\d.]+)\/pg\)/', $browser_text, $matches)) {
-            $total_steps = $matches[1];
-            $steps_per_page = $matches[2];
-        }
-        
-        // Format for display
-        if ($table->is_downloading()) {
-            $test_pages_display = $test_pages;
-            $steps_per_page_display = $steps_per_page;
-            $total_steps_display = $total_steps;
+        // Duration (from dedicated column)
+        if ($record->duration_seconds) {
+            $minutes = round($record->duration_seconds / 60, 1);
+            $duration_display = $minutes . ' min';
+            if (!$table->is_downloading()) {
+                $duration_display .= html_writer::tag('div', 
+                    $record->duration_seconds . ' sec', 
+                    ['class' => 'small text-muted']
+                );
+            } else {
+                $duration_display .= ' (' . $record->duration_seconds . ' sec)';
+            }
         } else {
-            // Add helpful tooltips
-            $test_pages_display = html_writer::tag('span', $test_pages, [
-                'title' => 'Question pages / Total pages (excluding review/submit)',
-                'data-toggle' => 'tooltip'
-            ]);
-            
-            $steps_per_page_display = html_writer::tag('span', $steps_per_page, [
-                'title' => 'Average interaction steps per page',
-                'data-toggle' => 'tooltip'
-            ]);
-            
-            $total_steps_display = html_writer::tag('span', $total_steps, [
+            $duration_display = 'N/A';
+        }
+        
+        // Questions
+        $questions_display = $record->question_count ?? 'N/A';
+        
+        // Grade
+        if ($record->grade_percent !== null) {
+            $grade_display = round($record->grade_percent, 1) . '%';
+            if (!$table->is_downloading()) {
+                if ($record->grade_percent >= 90) {
+                    $grade_class = 'badge badge-success';
+                } else if ($record->grade_percent >= 70) {
+                    $grade_class = 'badge badge-info';
+                } else {
+                    $grade_class = 'badge badge-warning';
+                }
+                $grade_display = html_writer::tag('span', $grade_display, ['class' => $grade_class]);
+            }
+        } else {
+            $grade_display = 'N/A';
+        }
+        
+        // CV Percent (Timing Variance)
+        if ($record->cv_percent !== null) {
+            $cv_display = round($record->cv_percent, 1) . '%';
+            if (!$table->is_downloading()) {
+                // Low CV% = suspicious (robotic)
+                if ($record->cv_percent < 5) {
+                    $cv_class = 'badge badge-danger';
+                    $cv_label = 'Robotic';
+                } else if ($record->cv_percent < 10) {
+                    $cv_class = 'badge badge-warning';
+                    $cv_label = 'Very Consistent';
+                } else if ($record->cv_percent < 30) {
+                    $cv_class = 'badge badge-success';
+                    $cv_label = 'Normal';
+                } else {
+                    $cv_class = 'badge badge-info';
+                    $cv_label = 'High Variance';
+                }
+                $cv_display = html_writer::tag('span', $cv_display, ['class' => $cv_class]) .
+                             html_writer::tag('div', $cv_label, ['class' => 'small text-muted']);
+            }
+        } else {
+            $cv_display = 'N/A';
+        }
+        
+        // Test Pages (question pages / total pages)
+        if ($record->test_pages !== null && $record->total_pages !== null) {
+            $testpages_display = $record->test_pages . '/' . $record->total_pages;
+            if (!$table->is_downloading()) {
+                $testpages_display = html_writer::tag('span', $testpages_display, [
+                    'title' => 'Question pages (≥10sec) / Total pages',
+                    'data-toggle' => 'tooltip'
+                ]);
+            }
+        } else {
+            $testpages_display = 'N/A';
+        }
+        
+        // Total Steps
+        $totalsteps_display = $record->total_steps ?? 'N/A';
+        if (!$table->is_downloading() && $totalsteps_display !== 'N/A') {
+            $totalsteps_display = html_writer::tag('span', $totalsteps_display, [
                 'title' => 'Total interaction steps recorded',
                 'data-toggle' => 'tooltip'
             ]);
         }
         
-        // Browser info (shortened for readability in table)
-        if (!$table->is_downloading()) {
-            // For web display, show compact version with full details in tooltip
-            $browser_short = $browser_text;
-            if (strlen($browser_text) > 100) {
-                $browser_short = substr($browser_text, 0, 97) . '...';
+        // Steps Per Page
+        if ($record->steps_per_page !== null) {
+            $stepsperpage_display = round($record->steps_per_page, 1);
+            if (!$table->is_downloading()) {
+                // Low steps per page = suspicious
+                if ($record->steps_per_page < 2) {
+                    $steps_class = 'text-danger font-weight-bold';
+                } else if ($record->steps_per_page < 3) {
+                    $steps_class = 'text-warning';
+                } else {
+                    $steps_class = '';
+                }
+                $stepsperpage_display = html_writer::tag('span', $stepsperpage_display, [
+                    'class' => $steps_class,
+                    'title' => 'Average interaction steps per page',
+                    'data-toggle' => 'tooltip'
+                ]);
             }
-            $browser_display = html_writer::tag('span', $browser_short, [
-                'title' => $browser_text,
-                'data-toggle' => 'tooltip',
-                'style' => 'cursor: help;'
-            ]);
         } else {
-            $browser_display = $browser_text;
+            $stepsperpage_display = 'N/A';
+        }
+        
+        // Suspicion Score with color coding
+        $suspicion_score = $record->suspicion_score ?? 0;
+        
+        if (!$table->is_downloading()) {
+            $score_class = '';
+            $confidence_text = '';
+            if ($suspicion_score >= 90) {
+                $score_class = 'badge badge-danger';
+                $confidence_text = 'Critical';
+            } else if ($suspicion_score >= 70) {
+                $score_class = 'badge badge-warning';
+                $confidence_text = 'High';
+            } else if ($suspicion_score >= 50) {
+                $score_class = 'badge badge-info';
+                $confidence_text = 'Moderate';
+            } else {
+                $score_class = 'badge badge-secondary';
+                $confidence_text = 'Low';
+            }
+            $suspicion_display = html_writer::tag('span', $suspicion_score, ['class' => $score_class]) .
+                                html_writer::tag('div', $confidence_text, ['class' => 'small text-muted']);
+        } else {
+            $suspicion_display = $suspicion_score . ' (' . ($suspicion_score >= 90 ? 'Critical' : 
+                                ($suspicion_score >= 70 ? 'High' : 
+                                ($suspicion_score >= 50 ? 'Moderate' : 'Low'))) . ')';
         }
         
         // Location (course page or activity)
@@ -240,41 +312,6 @@ if (empty($records)) {
             }
         } else {
             $location = get_string('course') . ': ' . $course->shortname;
-        }
-        
-        // Suspicion Score with color coding (cap at 100 for display)
-        $suspicion_score = isset($record->suspicion_score) ? $record->suspicion_score : 0;
-        $display_score = min($suspicion_score, 100); // Cap at 100 for display
-        
-        if (!$table->is_downloading()) {
-            $score_class = '';
-            $confidence_text = '';
-            if ($suspicion_score >= 90) {
-                $score_class = 'badge badge-danger';
-                $confidence_text = 'Critical';
-            } else if ($suspicion_score >= 70) {
-                $score_class = 'badge badge-warning';
-                $confidence_text = 'High';
-            } else if ($suspicion_score >= 50) {
-                $score_class = 'badge badge-info';
-                $confidence_text = 'Moderate';
-            } else {
-                $score_class = 'badge badge-secondary';
-                $confidence_text = 'Low';
-            }
-            $suspicion_display = html_writer::tag('span', $display_score, ['class' => $score_class]) .
-                                html_writer::tag('div', $confidence_text, ['class' => 'small text-muted']);
-        } else {
-            $suspicion_display = $display_score . ' (' . ($suspicion_score >= 90 ? 'Critical' : 
-                                ($suspicion_score >= 70 ? 'High' : 
-                                ($suspicion_score >= 50 ? 'Moderate' : 'Low'))) . ')';
-        }
-        
-        // Protection level
-        if ($record->protection_level === 'activity') {
-            $protectionlevel = get_string('protection_level_activity', 'local_aiagentblock');
-        } else {
-            $protectionlevel = get_string('protection_level_course', 'local_aiagentblock');
         }
         
         // Detection method
@@ -300,13 +337,15 @@ if (empty($records)) {
             $timestamp_display,
             $ipaddress,
             $agent,
-            $browser_display,
-            $location,
-            $test_pages_display,
-            $steps_per_page_display,
-            $total_steps_display,
+            $duration_display,
+            $questions_display,
+            $grade_display,
+            $cv_display,
+            $testpages_display,
+            $totalsteps_display,
+            $stepsperpage_display,
             $suspicion_display,
-            $protectionlevel,
+            $location,
             $detectionmethod
         ]);
     }
