@@ -18,6 +18,7 @@
  * Event observers for AI Agent Blocker plugin
  * 
  * COMPREHENSIVE DATA COLLECTION MODE: Logs ALL quiz attempts for behavioral analysis
+ * Uses PAGE-LEVEL timing variance instead of question-level
  *
  * @package    local_aiagentblock
  * @copyright  2024
@@ -72,7 +73,7 @@ class observer {
         // Get question count
         $questioncount = $DB->count_records('quiz_slots', ['quizid' => $quiz->id]);
         
-        // Calculate grade percentage - FIXED LOGIC
+        // Calculate grade percentage
         $grade_percent = 0;
         
         // First try to get from quiz_grades (final grade)
@@ -82,10 +83,8 @@ class observer {
         ]);
         
         if ($final_grade && $quiz->grade > 0) {
-            // Use final grade from quiz_grades table
             $grade_percent = round(($final_grade->grade / $quiz->grade) * 100, 2);
         } else if ($quiz->sumgrades > 0 && $attempt->sumgrades !== null) {
-            // Fallback: Calculate from attempt's sumgrades
             $grade_percent = round(($attempt->sumgrades / $quiz->sumgrades) * 100, 2);
         }
         
@@ -94,72 +93,125 @@ class observer {
         
         // Initialize metrics
         $answer_changes = 0;
-        $question_times = [];
+        $page_times = []; // Track time spent on each PAGE, not each question
         $sequential_order = true;
         $last_answered_slot = 0;
+        $total_steps = 0;
         
-        // Analyze each question
+        // Get all steps across ALL questions and organize by page
+        $all_steps_by_time = [];
+        
         foreach ($quba->get_slots() as $slot) {
             $qa = $quba->get_question_attempt($slot);
-            
-            // Count answer changes (steps with answers > 1 means changes were made)
             $steps = $qa->get_step_iterator();
-            $step_count = 0;
-            $first_answer_time = null;
-            $last_answer_time = null;
+            $answer_step_count = 0;
             
             foreach ($steps as $step) {
+                $total_steps++;
+                $step_time = $step->get_timecreated();
+                
+                // Store step with its slot number and time
+                $all_steps_by_time[] = [
+                    'slot' => $slot,
+                    'time' => $step_time,
+                    'has_answer' => $step->has_behaviour_var('answer')
+                ];
+                
                 if ($step->has_behaviour_var('answer')) {
-                    $step_count++;
-                    if ($first_answer_time === null) {
-                        $first_answer_time = $step->get_timecreated();
-                    }
-                    $last_answer_time = $step->get_timecreated();
+                    $answer_step_count++;
                 }
             }
             
-            if ($step_count > 1) {
+            // Count answer changes
+            if ($answer_step_count > 1) {
                 $answer_changes++;
             }
             
-            // Calculate time spent on this question
-            if ($first_answer_time !== null && $last_answer_time !== null) {
-                $question_time = $last_answer_time - $first_answer_time;
-                $question_times[] = max(1, $question_time); // Minimum 1 second
-                
-                // Check if answered sequentially
-                if ($slot < $last_answered_slot) {
-                    $sequential_order = false;
+            // Check sequential order
+            if ($slot < $last_answered_slot) {
+                $sequential_order = false;
+            }
+            $last_answered_slot = $slot;
+        }
+        
+        // Sort all steps by time to see page progression
+        usort($all_steps_by_time, function($a, $b) {
+            return $a['time'] - $b['time'];
+        });
+        
+        // Calculate PAGE-LEVEL timing variance
+        // Group consecutive steps by time gaps (>2 seconds = new page)
+        $page_groups = [];
+        $current_page = [];
+        $last_time = null;
+        
+        foreach ($all_steps_by_time as $step) {
+            if ($last_time !== null && ($step['time'] - $last_time) > 2) {
+                // More than 2 seconds gap = moved to new page
+                if (!empty($current_page)) {
+                    $page_groups[] = $current_page;
+                    $current_page = [];
                 }
-                $last_answered_slot = $slot;
+            }
+            $current_page[] = $step;
+            $last_time = $step['time'];
+        }
+        
+        // Don't forget the last page
+        if (!empty($current_page)) {
+            $page_groups[] = $current_page;
+        }
+        
+        // Calculate time spent on each page
+        foreach ($page_groups as $page) {
+            if (count($page) >= 2) {
+                $page_start = reset($page)['time'];
+                $page_end = end($page)['time'];
+                $page_duration = $page_end - $page_start;
+                $page_times[] = max(1, $page_duration); // Minimum 1 second
+            } else if (count($page) == 1) {
+                // Single step on page - estimate based on average
+                $page_times[] = max(1, $duration / max(1, count($page_groups)));
             }
         }
         
-        // Calculate timing statistics - FIXED to handle edge cases
+        // Calculate timing statistics from PAGE times
         $timing_variance = null;
         $timing_std_dev = null;
         $timing_mean = null;
+        $page_count = count($page_times);
         
-        if (count($question_times) > 1) {
-            $timing_mean = array_sum($question_times) / count($question_times);
+        if (count($page_times) > 1) {
+            $timing_mean = array_sum($page_times) / count($page_times);
             
             $variance_sum = 0;
-            foreach ($question_times as $time) {
+            foreach ($page_times as $time) {
                 $variance_sum += pow($time - $timing_mean, 2);
             }
-            $variance = $variance_sum / count($question_times);
+            $variance = $variance_sum / count($page_times);
             $timing_std_dev = sqrt($variance);
             
-            // Coefficient of variation (CV) - only if mean > 0
+            // Coefficient of variation (CV)
             if ($timing_mean > 0) {
                 $timing_variance = round(($timing_std_dev / $timing_mean) * 100, 2);
+            } else {
+                $timing_variance = 0;
             }
-        } else if (count($question_times) == 1) {
-            // Single question - timing variance not applicable but set mean
-            $timing_mean = $question_times[0];
+        } else if (count($page_times) == 1) {
+            // Single page quiz - no variance
+            $timing_mean = $page_times[0];
             $timing_std_dev = 0;
             $timing_variance = 0;
+        } else {
+            // No page timing data - use total duration as single page
+            $timing_mean = $duration;
+            $timing_std_dev = 0;
+            $timing_variance = 0;
+            $page_count = 1;
         }
+        
+        // Calculate interaction steps per question
+        $steps_per_question = $questioncount > 0 ? round($total_steps / $questioncount, 2) : 0;
         
         // Initialize suspicion scoring
         $suspicion_score = 0;
@@ -167,10 +219,10 @@ class observer {
         $flags = [];
         
         // =================================================================
-        // DETECTION LOGIC - More conservative thresholds for data collection
+        // DETECTION LOGIC
         // =================================================================
         
-        // 1. IMPOSSIBLE COMPLETION TIME (truly impossible)
+        // 1. IMPOSSIBLE COMPLETION TIME
         $minimum_possible = $questioncount * 3; // 3 seconds per question minimum
         if ($duration < $minimum_possible) {
             $suspicion_score += 100;
@@ -178,7 +230,7 @@ class observer {
             $flags[] = 'IMPOSSIBLE_TIME';
         }
         
-        // 2. VERY FAST COMPLETION (suspicious but possible)
+        // 2. VERY FAST COMPLETION
         $very_fast_threshold = $questioncount * 10; // 10 seconds per question
         $fast_threshold = $questioncount * 20; // 20 seconds per question
         
@@ -191,46 +243,44 @@ class observer {
             $reasons[] = 'fast_completion';
             $flags[] = 'FAST';
         } else {
-            // Mark as normal speed for analysis
             $flags[] = 'NORMAL_SPEED';
         }
         
-        // 3. NO ANSWER CORRECTIONS (only flag if ALSO fast)
+        // 3. NO ANSWER CORRECTIONS
         if ($answer_changes === 0 && $questioncount >= 3) {
             if ($duration < $fast_threshold) {
                 $suspicion_score += 20;
                 $reasons[] = 'no_corrections_and_fast';
                 $flags[] = 'NO_CORRECTIONS';
             } else {
-                // Just note it, don't add to score
                 $flags[] = 'NO_CORRECTIONS_SLOW';
             }
         } else if ($answer_changes > 0) {
             $flags[] = 'HAS_CORRECTIONS';
         }
         
-        // 4. EXTREMELY CONSISTENT TIMING (only flag if ALSO fast)
-        // CV < 15% is very consistent, CV < 10% is extremely consistent
-        if ($timing_variance !== null) {
+        // 4. PAGE-LEVEL TIMING VARIANCE (NEW - More reliable!)
+        if ($timing_variance !== null && $page_count > 1) {
             if ($timing_variance < 10 && $duration < $fast_threshold) {
                 $suspicion_score += 30;
-                $reasons[] = 'extremely_consistent_and_fast';
+                $reasons[] = 'extremely_consistent_page_timing';
                 $flags[] = 'VERY_LOW_VARIANCE';
             } else if ($timing_variance < 15 && $duration < $fast_threshold) {
                 $suspicion_score += 15;
-                $reasons[] = 'consistent_and_fast';
+                $reasons[] = 'consistent_page_timing';
                 $flags[] = 'LOW_VARIANCE';
             } else if ($timing_variance < 20) {
-                // Just note it
                 $flags[] = 'MODERATE_VARIANCE';
             } else if ($timing_variance < 40) {
                 $flags[] = 'NORMAL_VARIANCE';
             } else {
                 $flags[] = 'HIGH_VARIANCE';
             }
+        } else if ($page_count == 1) {
+            $flags[] = 'SINGLE_PAGE_QUIZ';
         }
         
-        // 5. PERFECT SCORE + VERY FAST (high confidence answers)
+        // 5. PERFECT SCORE + VERY FAST
         if ($grade_percent >= 95 && $duration < $very_fast_threshold) {
             $suspicion_score += 25;
             $reasons[] = 'perfect_score_very_fast';
@@ -243,25 +293,36 @@ class observer {
             $flags[] = 'HIGH_SCORE_NORMAL';
         }
         
-        // 6. LOW SCORE + VERY FAST (likely guessing or giving up - less suspicious)
+        // 6. LOW SCORE + VERY FAST
         if ($grade_percent < 50 && $duration < $very_fast_threshold) {
-            $suspicion_score -= 20; // REDUCE score - probably not AI
+            $suspicion_score -= 20;
             $flags[] = 'LOW_SCORE_FAST';
         } else if ($grade_percent < 50) {
             $flags[] = 'LOW_SCORE_NORMAL';
         }
         
-        // 7. SEQUENTIAL ANSWERING - Track for analysis only
+        // 7. SEQUENTIAL ANSWERING
         if ($sequential_order) {
             $flags[] = 'SEQUENTIAL';
         } else {
             $flags[] = 'NON_SEQUENTIAL';
         }
         
-        // 8. EXTREMELY HIGH VARIANCE (jumping around wildly - may indicate human)
-        if ($timing_variance !== null && $timing_variance > 80) {
-            $suspicion_score -= 10; // Reduce score - likely human
+        // 8. EXTREMELY HIGH VARIANCE
+        if ($timing_variance !== null && $timing_variance > 80 && $page_count > 1) {
+            $suspicion_score -= 10;
             $flags[] = 'EXTREME_VARIANCE';
+        }
+        
+        // 9. MINIMAL INTERACTION (NEW - Very reliable!)
+        if ($steps_per_question < 2 && $questioncount >= 3) {
+            $suspicion_score += 15;
+            $reasons[] = 'minimal_interaction';
+            $flags[] = 'MINIMAL_INTERACTION';
+        } else if ($steps_per_question >= 2 && $steps_per_question < 3) {
+            $flags[] = 'LOW_INTERACTION';
+        } else if ($steps_per_question >= 3) {
+            $flags[] = 'NORMAL_INTERACTION';
         }
         
         // =================================================================
@@ -269,11 +330,7 @@ class observer {
         // =================================================================
         
         $user_agent = $_SERVER['HTTP_USER_AGENT'] ?? 'Unknown';
-        
-        // Parse browser information more thoroughly
         $browser_data = self::parse_browser_detailed($user_agent);
-        
-        // Get IP address
         $ip_address = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
         
         // Determine detection method
@@ -282,15 +339,14 @@ class observer {
         // Check if user agent indicates AI
         if (\local_aiagentblock\detector::is_ai_user_agent($user_agent)) {
             $detection_method = 'user_agent';
-            $suspicion_score += 40; // Boost score significantly
+            $suspicion_score += 40;
             $flags[] = 'AI_USER_AGENT';
         }
         
         // =================================================================
-        // LOG ALL ATTEMPTS FOR COMPREHENSIVE ANALYSIS
+        // LOG ALL ATTEMPTS
         // =================================================================
         
-        // Build page URL to quiz review
         $pageurl = new \moodle_url('/mod/quiz/review.php', ['attempt' => $attemptid]);
         
         $log = new \stdClass();
@@ -305,28 +361,31 @@ class observer {
         $log->os = $browser_data['os'];
         $log->device_type = $browser_data['device_type'];
         $log->ip_address = $ip_address;
-        $log->suspicion_score = min(max($suspicion_score, 0), 100); // Clamp between 0-100
+        $log->suspicion_score = min(max($suspicion_score, 0), 100);
         $log->detection_method = $detection_method;
         $log->protection_level = 'course';
         
-        // Store comprehensive metrics for analysis
+        // Store comprehensive metrics
         $log->duration_seconds = $duration;
         $log->duration_minutes = $minutes;
         $log->question_count = $questioncount;
         $log->grade_percent = $grade_percent;
         $log->answer_changes = $answer_changes;
-        $log->timing_variance = $timing_variance;
+        $log->timing_variance = $timing_variance; // Now based on PAGE timing
         $log->timing_std_dev = $timing_std_dev;
         $log->timing_mean = $timing_mean;
         $log->sequential_order = $sequential_order ? 1 : 0;
         
-        // Store reasons and flags as JSON for detailed analysis
+        // Store reasons and flags as JSON
         $log->detection_reasons = json_encode($reasons);
-        $log->behavior_flags = json_encode($flags);
+        $log->behavior_flags = json_encode(array_merge($flags, [
+            'PAGES:' . $page_count,
+            'STEPS_PER_Q:' . $steps_per_question
+        ]));
         
         $log->timecreated = time();
         
-        // LOG EVERY ATTEMPT - No threshold check
+        // LOG EVERY ATTEMPT
         $DB->insert_record('local_aiagentblock_log', $log);
         
         // Only notify on very high-confidence detections (80+)
@@ -380,7 +439,7 @@ class observer {
         }
         
         // Detect device type
-        if (preg_match('/Mobile|Android|iPhone|iPad/', $user_agent)) {
+        if (preg_match('/Mobile|Android|iPhone/', $user_agent)) {
             $result['device_type'] = 'Mobile';
         } else if (preg_match('/Tablet|iPad/', $user_agent)) {
             $result['device_type'] = 'Tablet';
