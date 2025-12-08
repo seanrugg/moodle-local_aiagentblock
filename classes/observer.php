@@ -16,12 +16,9 @@
 
 /**
  * Event observers for AI Agent Blocker plugin
- * 
- * COMPREHENSIVE DATA COLLECTION MODE: Logs ALL quiz attempts for behavioral analysis
- * Uses PAGE-LEVEL timing variance instead of question-level
  *
  * @package    local_aiagentblock
- * @copyright  2024
+ * @copyright  2025
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
@@ -30,484 +27,483 @@ namespace local_aiagentblock;
 defined('MOODLE_INTERNAL') || die();
 
 /**
- * Event observer class for AI agent detection
+ * Event observer class for detecting AI agent activity
  */
 class observer {
     
     /**
-     * Observe quiz attempt submitted event for timing analysis
-     * 
-     * DATA COLLECTION MODE: Logs ALL attempts regardless of suspicion score
+     * Observer for quiz attempt submitted event
+     * Analyzes completion time to detect AI agents
      *
      * @param \mod_quiz\event\attempt_submitted $event
      */
     public static function quiz_attempt_submitted(\mod_quiz\event\attempt_submitted $event) {
-        global $DB, $USER;
+        global $DB;
         
-        // Skip if logging is disabled
-        if (!get_config('local_aiagentblock', 'log_detections')) {
-            return;
-        }
+        // Get the attempt data (AFTER submission, so grades are calculated)
+        $attempt = $DB->get_record('quiz_attempts', ['id' => $event->objectid], '*', MUST_EXIST);
         
-        $attemptid = $event->objectid;
-        $courseid = $event->courseid;
-        $userid = $event->userid;
-        $cmid = $event->contextinstanceid;
-        
-        // Get quiz attempt details
-        $attempt = $DB->get_record('quiz_attempts', ['id' => $attemptid]);
-        if (!$attempt) {
-            return;
-        }
-        
-        // Get quiz details
-        $quiz = $DB->get_record('quiz', ['id' => $attempt->quiz]);
-        if (!$quiz) {
-            return;
-        }
-        
-        // Calculate duration in seconds
+        // Calculate completion time in seconds
         $duration = $attempt->timefinish - $attempt->timestart;
         $minutes = round($duration / 60, 1);
         
-        // Get question count
-        $questioncount = $DB->count_records('quiz_slots', ['quizid' => $quiz->id]);
+        // Get quiz info
+        $quiz = $DB->get_record('quiz', ['id' => $attempt->quiz], '*', MUST_EXIST);
         
-        // Calculate grade percentage
-        $grade_percent = 0;
+        // Get course module ID for the quiz
+        $cm = get_coursemodule_from_instance('quiz', $quiz->id, $event->courseid);
+        if (!$cm) {
+            return; // Can't proceed without course module
+        }
         
-        // First try to get from quiz_grades (final grade)
+        // Get the FINAL grade for this attempt (from quiz_grades table)
         $final_grade = $DB->get_record('quiz_grades', [
             'quiz' => $quiz->id,
             'userid' => $attempt->userid
         ]);
         
+        // Calculate grade percentage
+        $grade_percent = 0;
         if ($final_grade && $quiz->grade > 0) {
-            $grade_percent = round(($final_grade->grade / $quiz->grade) * 100, 2);
-        } else if ($quiz->sumgrades > 0 && $attempt->sumgrades !== null) {
-            $grade_percent = round(($attempt->sumgrades / $quiz->sumgrades) * 100, 2);
+            $grade_percent = ($final_grade->grade / $quiz->grade) * 100;
+        } else if ($quiz->sumgrades > 0 && $attempt->sumgrades > 0) {
+            // Fallback: calculate from attempt grades
+            $grade_percent = ($attempt->sumgrades / $quiz->sumgrades) * 100;
         }
         
-        // Get question usage
-        $quba = \question_engine::load_questions_usage_by_activity($attempt->uniqueid);
+        // Count questions in quiz
+        $questioncount = $DB->count_records('quiz_slots', ['quizid' => $quiz->id]);
         
-        // Initialize metrics
-        $answer_changes = 0;
-        $page_times = []; // Track time spent on each PAGE, not each question
-        $sequential_order = true;
-        $last_answered_slot = 0;
-        $total_steps = 0;
-        
-        // Get all steps across ALL questions and organize by page
-        $all_steps_by_time = [];
-        
-        foreach ($quba->get_slots() as $slot) {
-            $qa = $quba->get_question_attempt($slot);
-            $steps = $qa->get_step_iterator();
-            $answer_step_count = 0;
-            
-            foreach ($steps as $step) {
-                $total_steps++;
-                $step_time = $step->get_timecreated();
-                
-                // Store step with its slot number and time
-                $all_steps_by_time[] = [
-                    'slot' => $slot,
-                    'time' => $step_time,
-                    'has_answer' => $step->has_behaviour_var('answer')
-                ];
-                
-                if ($step->has_behaviour_var('answer')) {
-                    $answer_step_count++;
-                }
-            }
-            
-            // Count answer changes
-            if ($answer_step_count > 1) {
-                $answer_changes++;
-            }
-            
-            // Check sequential order
-            if ($slot < $last_answered_slot) {
-                $sequential_order = false;
-            }
-            $last_answered_slot = $slot;
-        }
-        
-        // Sort all steps by time to see page progression
-        usort($all_steps_by_time, function($a, $b) {
-            return $a['time'] - $b['time'];
-        });
-        
-        // Calculate PAGE-LEVEL timing variance
-        // Group consecutive steps by time gaps (>2 seconds = new page)
-        $page_groups = [];
-        $current_page = [];
-        $last_time = null;
-        
-        foreach ($all_steps_by_time as $step) {
-            if ($last_time !== null && ($step['time'] - $last_time) > 2) {
-                // More than 2 seconds gap = moved to new page
-                if (!empty($current_page)) {
-                    $page_groups[] = $current_page;
-                    $current_page = [];
-                }
-            }
-            $current_page[] = $step;
-            $last_time = $step['time'];
-        }
-        
-        // Don't forget the last page
-        if (!empty($current_page)) {
-            $page_groups[] = $current_page;
-        }
-        
-        // Calculate time spent on each page
-        foreach ($page_groups as $page) {
-            if (count($page) >= 2) {
-                $page_start = reset($page)['time'];
-                $page_end = end($page)['time'];
-                $page_duration = $page_end - $page_start;
-                $page_times[] = max(1, $page_duration); // Minimum 1 second
-            } else if (count($page) == 1) {
-                // Single step on page - estimate based on average
-                $page_times[] = max(1, $duration / max(1, count($page_groups)));
-            }
-        }
-        
-        // Calculate timing statistics from PAGE times
-        $timing_variance = null;
-        $timing_std_dev = null;
-        $timing_mean = null;
-        $page_count = count($page_times);
-        
-        if (count($page_times) > 1) {
-            $timing_mean = array_sum($page_times) / count($page_times);
-            
-            $variance_sum = 0;
-            foreach ($page_times as $time) {
-                $variance_sum += pow($time - $timing_mean, 2);
-            }
-            $variance = $variance_sum / count($page_times);
-            $timing_std_dev = sqrt($variance);
-            
-            // Coefficient of variation (CV)
-            if ($timing_mean > 0) {
-                $timing_variance = round(($timing_std_dev / $timing_mean) * 100, 2);
-            } else {
-                $timing_variance = 0;
-            }
-        } else if (count($page_times) == 1) {
-            // Single page quiz - no variance
-            $timing_mean = $page_times[0];
-            $timing_std_dev = 0;
-            $timing_variance = 0;
-        } else {
-            // No page timing data - use total duration as single page
-            $timing_mean = $duration;
-            $timing_std_dev = 0;
-            $timing_variance = 0;
-            $page_count = 1;
-        }
-        
-        // Calculate interaction steps per question
-        $steps_per_question = $questioncount > 0 ? round($total_steps / $questioncount, 2) : 0;
-        
-        // Initialize suspicion scoring
+        // Calculate suspicion score based on timing
         $suspicion_score = 0;
         $reasons = [];
-        $flags = [];
+        $threshold_triggered = '';
         
-        // =================================================================
-        // DETECTION LOGIC
-        // =================================================================
-        
-        // 1. IMPOSSIBLE COMPLETION TIME
-        $minimum_possible = $questioncount * 3; // 3 seconds per question minimum
-        if ($duration < $minimum_possible) {
-            $suspicion_score += 100;
-            $reasons[] = 'impossible_completion_time';
-            $flags[] = 'IMPOSSIBLE_TIME';
+        // Impossible speed thresholds
+        if ($minutes < 1) {
+            $suspicion_score = 100;
+            $reasons[] = 'completed_under_1min';
+            $threshold_triggered = 'Critical: < 1 minute';
+        }
+        else if ($minutes < 2) {
+            $suspicion_score = 90;
+            $reasons[] = 'completed_under_2min';
+            $threshold_triggered = 'Very High: < 2 minutes';
+        }
+        else if ($minutes < 3) {
+            $suspicion_score = 70;
+            $reasons[] = 'completed_under_3min';
+            $threshold_triggered = 'High: < 3 minutes';
+        }
+        else if ($minutes < 5) {
+            $suspicion_score = 50;
+            $reasons[] = 'completed_under_5min';
+            $threshold_triggered = 'Moderate: < 5 minutes';
         }
         
-        // 2. VERY FAST COMPLETION
-        $very_fast_threshold = $questioncount * 10; // 10 seconds per question
-        $fast_threshold = $questioncount * 20; // 20 seconds per question
-        
-        if ($duration >= $minimum_possible && $duration < $very_fast_threshold) {
-            $suspicion_score += 50;
-            $reasons[] = 'very_fast_completion';
-            $flags[] = 'VERY_FAST';
-        } else if ($duration >= $very_fast_threshold && $duration < $fast_threshold) {
-            $suspicion_score += 30;
-            $reasons[] = 'fast_completion';
-            $flags[] = 'FAST';
-        } else {
-            $flags[] = 'NORMAL_SPEED';
-        }
-        
-        // 3. NO ANSWER CORRECTIONS
-        if ($answer_changes === 0 && $questioncount >= 3) {
-            if ($duration < $fast_threshold) {
-                $suspicion_score += 20;
-                $reasons[] = 'no_corrections_and_fast';
-                $flags[] = 'NO_CORRECTIONS';
-            } else {
-                $flags[] = 'NO_CORRECTIONS_SLOW';
-            }
-        } else if ($answer_changes > 0) {
-            $flags[] = 'HAS_CORRECTIONS';
-        }
-        
-        // 4. PAGE-LEVEL TIMING VARIANCE (NEW - More reliable!)
-        if ($timing_variance !== null && $page_count > 1) {
-            if ($timing_variance < 10 && $duration < $fast_threshold) {
-                $suspicion_score += 30;
-                $reasons[] = 'extremely_consistent_page_timing';
-                $flags[] = 'VERY_LOW_VARIANCE';
-            } else if ($timing_variance < 15 && $duration < $fast_threshold) {
-                $suspicion_score += 15;
-                $reasons[] = 'consistent_page_timing';
-                $flags[] = 'LOW_VARIANCE';
-            } else if ($timing_variance < 20) {
-                $flags[] = 'MODERATE_VARIANCE';
-            } else if ($timing_variance < 40) {
-                $flags[] = 'NORMAL_VARIANCE';
-            } else {
-                $flags[] = 'HIGH_VARIANCE';
-            }
-        } else if ($page_count == 1) {
-            $flags[] = 'SINGLE_PAGE_QUIZ';
-        }
-        
-        // 5. PERFECT SCORE + VERY FAST
-        if ($grade_percent >= 95 && $duration < $very_fast_threshold) {
-            $suspicion_score += 25;
-            $reasons[] = 'perfect_score_very_fast';
-            $flags[] = 'PERFECT_AND_FAST';
-        } else if ($grade_percent >= 90 && $duration < $fast_threshold) {
-            $suspicion_score += 10;
-            $reasons[] = 'high_score_fast';
-            $flags[] = 'HIGH_SCORE_FAST';
-        } else if ($grade_percent >= 90) {
-            $flags[] = 'HIGH_SCORE_NORMAL';
-        }
-        
-        // 6. LOW SCORE + VERY FAST
-        if ($grade_percent < 50 && $duration < $very_fast_threshold) {
-            $suspicion_score -= 20;
-            $flags[] = 'LOW_SCORE_FAST';
-        } else if ($grade_percent < 50) {
-            $flags[] = 'LOW_SCORE_NORMAL';
-        }
-        
-        // 7. SEQUENTIAL ANSWERING
-        if ($sequential_order) {
-            $flags[] = 'SEQUENTIAL';
-        } else {
-            $flags[] = 'NON_SEQUENTIAL';
-        }
-        
-        // 8. EXTREMELY HIGH VARIANCE
-        if ($timing_variance !== null && $timing_variance > 80 && $page_count > 1) {
-            $suspicion_score -= 10;
-            $flags[] = 'EXTREME_VARIANCE';
-        }
-        
-        // 9. MINIMAL INTERACTION (NEW - Very reliable!)
-        if ($steps_per_question < 2 && $questioncount >= 3) {
-            $suspicion_score += 15;
-            $reasons[] = 'minimal_interaction';
-            $flags[] = 'MINIMAL_INTERACTION';
-        } else if ($steps_per_question >= 2 && $steps_per_question < 3) {
-            $flags[] = 'LOW_INTERACTION';
-        } else if ($steps_per_question >= 3) {
-            $flags[] = 'NORMAL_INTERACTION';
-        }
-        
-        // =================================================================
-        // COLLECT USER AGENT AND BROWSER DATA
-        // =================================================================
-        
-        $user_agent = $_SERVER['HTTP_USER_AGENT'] ?? 'Unknown';
-        $browser_data = self::parse_browser_detailed($user_agent);
-        $ip_address = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
-        
-        // Determine detection method
-        $detection_method = 'timing_analysis';
-        
-        // Check if user agent indicates AI
-        if (\local_aiagentblock\detector::is_ai_user_agent($user_agent)) {
-            $detection_method = 'user_agent';
-            $suspicion_score += 40;
-            $flags[] = 'AI_USER_AGENT';
-        }
-        
-        // =================================================================
-        // LOG ALL ATTEMPTS
-        // =================================================================
-        
-        $pageurl = new \moodle_url('/mod/quiz/review.php', ['attempt' => $attemptid]);
-        
-        $log = new \stdClass();
-        $log->userid = $userid;
-        $log->courseid = $courseid;
-        $log->contextid = $event->contextid;
-        $log->cmid = $cmid;
-        $log->pageurl = $pageurl->out(false);
-        $log->user_agent = $user_agent;
-        $log->browser = $browser_data['browser_name'];
-        $log->browser_version = $browser_data['browser_version'];
-        $log->os = $browser_data['os'];
-        $log->device_type = $browser_data['device_type'];
-        $log->ip_address = $ip_address;
-        $log->suspicion_score = min(max($suspicion_score, 0), 100);
-        $log->detection_method = $detection_method;
-        $log->protection_level = 'course';
-        
-        // Store comprehensive metrics
-        $log->duration_seconds = $duration;
-        $log->duration_minutes = $minutes;
-        $log->question_count = $questioncount;
-        $log->grade_percent = $grade_percent;
-        $log->answer_changes = $answer_changes;
-        $log->timing_variance = $timing_variance; // Now based on PAGE timing
-        $log->timing_std_dev = $timing_std_dev;
-        $log->timing_mean = $timing_mean;
-        $log->sequential_order = $sequential_order ? 1 : 0;
-        
-        // Store reasons and flags as JSON
-        $log->detection_reasons = json_encode($reasons);
-        $log->behavior_flags = json_encode(array_merge($flags, [
-            'PAGES:' . $page_count,
-            'STEPS_PER_Q:' . $steps_per_question
-        ]));
-        
-        $log->timecreated = time();
-        
-        // LOG EVERY ATTEMPT
-        $DB->insert_record('local_aiagentblock_log', $log);
-        
-        // Only notify on very high-confidence detections (80+)
-        if ($suspicion_score >= 80 && get_config('local_aiagentblock', 'notify_admin')) {
-            self::notify_admin($log, $USER, $quiz);
-        }
-    }
-    
-    /**
-     * Parse browser information with more detail
-     *
-     * @param string $user_agent
-     * @return array Browser details
-     */
-    private static function parse_browser_detailed($user_agent) {
-        $result = [
-            'browser_name' => 'Unknown',
-            'browser_version' => '',
-            'os' => 'Unknown',
-            'device_type' => 'Unknown'
-        ];
-        
-        // Detect browser
-        if (preg_match('/Edg\/([0-9.]+)/', $user_agent, $matches)) {
-            $result['browser_name'] = 'Edge';
-            $result['browser_version'] = $matches[1];
-        } else if (preg_match('/Chrome\/([0-9.]+)/', $user_agent, $matches)) {
-            $result['browser_name'] = 'Chrome';
-            $result['browser_version'] = $matches[1];
-        } else if (preg_match('/Firefox\/([0-9.]+)/', $user_agent, $matches)) {
-            $result['browser_name'] = 'Firefox';
-            $result['browser_version'] = $matches[1];
-        } else if (preg_match('/Safari\/([0-9.]+)/', $user_agent, $matches)) {
-            if (!preg_match('/Chrome/', $user_agent)) {
-                $result['browser_name'] = 'Safari';
-                $result['browser_version'] = $matches[1];
-            }
-        }
-        
-        // Detect OS
-        if (preg_match('/Windows NT ([0-9.]+)/', $user_agent, $matches)) {
-            $result['os'] = 'Windows ' . self::get_windows_version($matches[1]);
-        } else if (preg_match('/Mac OS X ([0-9_]+)/', $user_agent, $matches)) {
-            $result['os'] = 'macOS ' . str_replace('_', '.', $matches[1]);
-        } else if (preg_match('/Linux/', $user_agent)) {
-            $result['os'] = 'Linux';
-        } else if (preg_match('/Android ([0-9.]+)/', $user_agent, $matches)) {
-            $result['os'] = 'Android ' . $matches[1];
-        } else if (preg_match('/iPhone OS ([0-9_]+)/', $user_agent, $matches)) {
-            $result['os'] = 'iOS ' . str_replace('_', '.', $matches[1]);
-        }
-        
-        // Detect device type
-        if (preg_match('/Mobile|Android|iPhone/', $user_agent)) {
-            $result['device_type'] = 'Mobile';
-        } else if (preg_match('/Tablet|iPad/', $user_agent)) {
-            $result['device_type'] = 'Tablet';
-        } else {
-            $result['device_type'] = 'Desktop';
-        }
-        
-        return $result;
-    }
-    
-    /**
-     * Convert Windows NT version to readable name
-     *
-     * @param string $nt_version
-     * @return string
-     */
-    private static function get_windows_version($nt_version) {
-        $versions = [
-            '10.0' => '10/11',
-            '6.3' => '8.1',
-            '6.2' => '8',
-            '6.1' => '7',
-            '6.0' => 'Vista',
-            '5.1' => 'XP'
-        ];
-        
-        return $versions[$nt_version] ?? $nt_version;
-    }
-    
-    /**
-     * Send notification to administrators
-     *
-     * @param stdClass $log
-     * @param stdClass $user
-     * @param stdClass $quiz
-     */
-    private static function notify_admin($log, $user, $quiz) {
-        global $CFG, $DB;
-        
-        $course = $DB->get_record('course', ['id' => $log->courseid]);
-        
-        $admins = get_admins();
-        foreach ($admins as $admin) {
-            $message = new \core\message\message();
-            $message->component = 'local_aiagentblock';
-            $message->name = 'aidetection';
-            $message->userfrom = \core_user::get_noreply_user();
-            $message->userto = $admin;
-            $message->subject = get_string('email_subject', 'local_aiagentblock', $course->fullname);
-            $message->fullmessage = get_string('email_body', 'local_aiagentblock', [
-                'studentname' => fullname($user),
-                'username' => $user->username,
-                'email' => $user->email,
-                'coursename' => $course->fullname,
-                'location' => $quiz->name,
-                'method' => $log->detection_method,
-                'useragent' => $log->user_agent,
-                'ipaddress' => $log->ip_address,
-                'browser' => $log->browser,
-                'timestamp' => userdate($log->timecreated),
-                'reporturl' => $CFG->wwwroot . '/local/aiagentblock/report.php?id=' . $log->courseid
-            ]);
-            $message->fullmessageformat = FORMAT_PLAIN;
-            $message->fullmessagehtml = '';
-            $message->smallmessage = 'AI agent detected in ' . $course->fullname;
-            $message->notification = 1;
+        // Per-question speed check
+        if ($questioncount > 0) {
+            $seconds_per_question = $duration / $questioncount;
             
-            message_send($message);
+            if ($seconds_per_question < 10) {
+                $suspicion_score += 40;
+                $reasons[] = 'less_than_10sec_per_question';
+            }
+            else if ($seconds_per_question < 20) {
+                $suspicion_score += 30;
+                $reasons[] = 'less_than_20sec_per_question';
+            }
+            else if ($seconds_per_question < 30) {
+                $suspicion_score += 20;
+                $reasons[] = 'less_than_30sec_per_question';
+            }
+        }
+        
+        // Perfect score on fast completion is extra suspicious
+        if ($grade_percent >= 100 && $minutes < 3) {
+            $suspicion_score += 20;
+            $reasons[] = 'perfect_score_fast_completion';
+        }
+        
+        // === ENHANCED DETECTION CHECKS ===
+        
+        // 1. ANSWER CHANGE DETECTION (No corrections = suspicious)
+        $answer_changes = self::count_answer_changes($attempt->uniqueid);
+        if ($answer_changes === 0 && $questioncount >= 3) {
+            $suspicion_score += 30;
+            $reasons[] = 'no_answer_corrections';
+        } else if ($answer_changes <= 1 && $questioncount >= 5) {
+            $suspicion_score += 20;
+            $reasons[] = 'minimal_corrections';
+        }
+        
+        // 2. TIMING CONSISTENCY CHECK (Too consistent = robotic)
+        $timing_result = self::analyze_timing_consistency($attempt->uniqueid);
+        if ($timing_result !== null) {
+            $timing_variance = $timing_result['cv_percent'];
+            $question_pages = $timing_result['question_pages'];
+            $total_pages = $timing_result['total_pages'];
+            
+            // Low variance = robotic (AI signature)
+            if ($timing_variance < 5) {
+                $suspicion_score += 35;
+                $reasons[] = 'robotic_timing_cv_' . round($timing_variance, 1) . '%';
+            } else if ($timing_variance < 10) {
+                $suspicion_score += 20;
+                $reasons[] = 'very_consistent_timing_cv_' . round($timing_variance, 1) . '%';
+            }
+        } else {
+            $timing_variance = null;
+            $question_pages = 0;
+            $total_pages = 0;
+        }
+        
+        // 3. SEQUENTIAL PATTERN (Perfect order = unusual)
+        $answered_sequentially = self::check_sequential_pattern($attempt->uniqueid, $questioncount);
+        if ($answered_sequentially && $questioncount >= 4) {
+            $suspicion_score += 20;
+            $reasons[] = 'perfect_sequential_answering';
+        }
+        
+        // 4. INSTANT NAVIGATION (Review/submit pages clicked instantly)
+        $instant_navigation_score = self::check_instant_navigation($attempt->uniqueid);
+        if ($instant_navigation_score > 0) {
+            $suspicion_score += $instant_navigation_score;
+            $reasons[] = 'instant_navigation_clicks';
+        }
+        
+        // Get interaction metrics
+        $interaction_metrics = self::get_interaction_metrics($attempt->uniqueid);
+        
+        // Log if suspicious (threshold: 50+)
+        if ($suspicion_score >= 50) {
+            self::log_timing_detection(
+                $event->userid,
+                $event->courseid,
+                $event->contextid,
+                $cm->id,
+                $quiz->name,
+                $suspicion_score,
+                $reasons,
+                $duration,
+                $minutes,
+                $questioncount,
+                $grade_percent,
+                $threshold_triggered,
+                $attempt->id,
+                $timing_variance,
+                $question_pages,
+                $total_pages,
+                $interaction_metrics
+            );
+        }
+    }
+    
+    /**
+     * Log timing-based detection to database
+     *
+     * @param int $userid User ID
+     * @param int $courseid Course ID
+     * @param int $contextid Context ID
+     * @param int $cmid Course module ID
+     * @param string $quizname Quiz name
+     * @param int $score Suspicion score
+     * @param array $reasons Detection reasons
+     * @param int $duration Duration in seconds
+     * @param float $minutes Duration in minutes
+     * @param int $questioncount Number of questions
+     * @param float $grade_percent Grade percentage
+     * @param string $threshold Threshold description
+     * @param int $attemptid Quiz attempt ID
+     * @param float|null $timing_variance CV% for timing consistency
+     * @param int $question_pages Number of question pages analyzed
+     * @param int $total_pages Total pages in attempt
+     * @param array $interaction_metrics Interaction step counts
+     */
+    private static function log_timing_detection($userid, $courseid, $contextid, $cmid, $quizname, 
+                                                  $score, $reasons, $duration, $minutes, 
+                                                  $questioncount, $grade_percent, $threshold, $attemptid,
+                                                  $timing_variance, $question_pages, $total_pages, $interaction_metrics) {
+        global $DB;
+        
+        // Build page URL to the quiz attempt review
+        $pageurl = new \moodle_url('/mod/quiz/review.php', [
+            'attempt' => $attemptid
+        ]);
+        
+        // Create detailed user agent string with timing info
+        $user_agent = $_SERVER['HTTP_USER_AGENT'] ?? 'Unknown';
+        
+        // Create browser field with comprehensive timing details
+        $browser_info = sprintf(
+            'Time: %.1f min (%d sec) | Questions: %d | Pages: %d/%d | Steps: %d (%.1f/pg) | CV%%: %s | Grade: %.1f%% | %s | Reasons: %s',
+            $minutes,
+            $duration,
+            $questioncount,
+            $question_pages,
+            $total_pages,
+            $interaction_metrics['total_steps'],
+            $interaction_metrics['steps_per_page'],
+            $timing_variance !== null ? round($timing_variance, 1) . '%' : 'N/A',
+            $grade_percent,
+            $threshold,
+            implode(', ', $reasons)
+        );
+        
+        $record = new \stdClass();
+        $record->userid = $userid;
+        $record->courseid = $courseid;
+        $record->contextid = $contextid;
+        $record->cmid = $cmid;
+        $record->pageurl = $pageurl->out(false);
+        $record->protection_level = 'course';
+        $record->detection_method = 'timing_analysis';
+        $record->user_agent = $user_agent;
+        $record->browser = $browser_info;
+        $record->ip_address = $_SERVER['REMOTE_ADDR'] ?? '';
+        $record->suspicion_score = $score;
+        $record->timecreated = time();
+        
+        $DB->insert_record('local_aiagentblock_log', $record);
+        
+        // Send admin notification if configured
+        if (get_config('local_aiagentblock', 'notify_admin')) {
+            self::notify_admin_timing_detection($userid, $courseid, $quizname, $minutes, 
+                                                $grade_percent, $threshold, $pageurl);
+        }
+    }
+    
+    /**
+     * Count how many times student changed their answers
+     *
+     * @param int $uniqueid Quiz attempt unique ID
+     * @return int Number of answer changes
+     */
+    private static function count_answer_changes($uniqueid) {
+        global $DB;
+        
+        // Get all question attempts for this quiz attempt
+        $sql = "SELECT qa.id, COUNT(qas.id) as step_count
+                FROM {question_attempts} qa
+                JOIN {question_attempt_steps} qas ON qas.questionattemptid = qa.id
+                WHERE qa.questionusageid = :uniqueid
+                AND qas.state != 'todo'
+                AND qas.state != 'complete'
+                GROUP BY qa.id
+                HAVING COUNT(qas.id) > 1";
+        
+        $results = $DB->get_records_sql($sql, ['uniqueid' => $uniqueid]);
+        
+        // Each question with more than 1 step (excluding initial) = changed answer
+        return count($results);
+    }
+    
+    /**
+     * Analyze timing consistency across questions (FIXED VERSION)
+     * Returns CV% and page counts - excludes navigation/submit pages
+     *
+     * @param int $uniqueid Quiz attempt unique ID
+     * @return array|null Array with cv_percent, question_pages, total_pages, or null if can't calculate
+     */
+    private static function analyze_timing_consistency($uniqueid) {
+        global $DB;
+        
+        // Get timestamps for each question's completion
+        $sql = "SELECT qa.slot, MIN(qas.timecreated) as start_time, MAX(qas.timecreated) as end_time
+                FROM {question_attempts} qa
+                JOIN {question_attempt_steps} qas ON qas.questionattemptid = qa.id
+                WHERE qa.questionusageid = :uniqueid
+                GROUP BY qa.slot
+                ORDER BY qa.slot";
+        
+        $questions = $DB->get_records_sql($sql, ['uniqueid' => $uniqueid]);
+        
+        $total_pages = count($questions);
+        
+        if ($total_pages < 3) {
+            return null; // Need at least 3 pages total
+        }
+        
+        // Calculate time spent on each question
+        $times = [];
+        foreach ($questions as $q) {
+            $time_spent = $q->end_time - $q->start_time;
+            
+            // *** FIX: Only include pages where student spent >= 10 seconds ***
+            // This excludes review/submit pages (typically 2-5 seconds)
+            if ($time_spent >= 10) {
+                $times[] = $time_spent;
+            }
+        }
+        
+        $question_pages = count($times);
+        
+        if ($question_pages < 3) {
+            return null; // Need at least 3 actual question pages to calculate variance
+        }
+        
+        // Calculate variance (standard deviation)
+        $mean = array_sum($times) / count($times);
+        $squared_diffs = array_map(function($x) use ($mean) {
+            return pow($x - $mean, 2);
+        }, $times);
+        $std_dev = sqrt(array_sum($squared_diffs) / count($times));
+        
+        // Calculate coefficient of variation as percentage
+        $cv_percent = ($std_dev / $mean) * 100;
+        
+        return [
+            'cv_percent' => $cv_percent,
+            'question_pages' => $question_pages,
+            'total_pages' => $total_pages,
+            'mean_time' => $mean,
+            'std_dev' => $std_dev
+        ];
+    }
+    
+    /**
+     * Check if questions were answered in perfect sequential order
+     *
+     * @param int $uniqueid Quiz attempt unique ID
+     * @param int $total_questions Total number of questions
+     * @return bool True if answered in perfect order 1,2,3,4,5...
+     */
+    private static function check_sequential_pattern($uniqueid, $total_questions) {
+        global $DB;
+        
+        if ($total_questions < 4) {
+            return false; // Too few questions to judge
+        }
+        
+        // Get the order in which questions were first answered
+        $sql = "SELECT qa.slot, MIN(qas.timecreated) as first_answer
+                FROM {question_attempts} qa
+                JOIN {question_attempt_steps} qas ON qas.questionattemptid = qa.id
+                WHERE qa.questionusageid = :uniqueid
+                AND qas.state != 'todo'
+                GROUP BY qa.slot
+                ORDER BY first_answer";
+        
+        $order = $DB->get_records_sql($sql, ['uniqueid' => $uniqueid]);
+        
+        // Check if slots are in perfect sequential order
+        $expected_slot = 1;
+        foreach ($order as $q) {
+            if ($q->slot != $expected_slot) {
+                return false; // Not sequential
+            }
+            $expected_slot++;
+        }
+        
+        return true; // Perfect sequential order
+    }
+    
+    /**
+     * Check for instant navigation (clicking through review/submit pages in < 2 seconds)
+     * AI agents often click through these pages instantly
+     *
+     * @param int $uniqueid Quiz attempt unique ID
+     * @return int Suspicion score (0-25)
+     */
+    private static function check_instant_navigation($uniqueid) {
+        global $DB;
+        
+        $sql = "SELECT qa.slot, MIN(qas.timecreated) as start_time, MAX(qas.timecreated) as end_time
+                FROM {question_attempts} qa
+                JOIN {question_attempt_steps} qas ON qas.questionattemptid = qa.id
+                WHERE qa.questionusageid = :uniqueid
+                GROUP BY qa.slot
+                ORDER BY qa.slot";
+        
+        $pages = $DB->get_records_sql($sql, ['uniqueid' => $uniqueid]);
+        
+        $instant_clicks = 0;
+        foreach ($pages as $page) {
+            $time = $page->end_time - $page->start_time;
+            if ($time < 2) { // Less than 2 seconds
+                $instant_clicks++;
+            }
+        }
+        
+        // AI agents often click through review/submit instantly
+        if ($instant_clicks >= 3) {
+            return 25;
+        } else if ($instant_clicks >= 2) {
+            return 15;
+        }
+        
+        return 0;
+    }
+    
+    /**
+     * Get interaction metrics (total steps, steps per page)
+     *
+     * @param int $uniqueid Quiz attempt unique ID
+     * @return array Array with total_steps, steps_per_page, total_pages
+     */
+    private static function get_interaction_metrics($uniqueid) {
+        global $DB;
+        
+        // Count total interaction steps
+        $sql = "SELECT COUNT(qas.id) as total_steps
+                FROM {question_attempts} qa
+                JOIN {question_attempt_steps} qas ON qas.questionattemptid = qa.id
+                WHERE qa.questionusageid = :uniqueid";
+        
+        $result = $DB->get_record_sql($sql, ['uniqueid' => $uniqueid]);
+        $total_steps = $result ? $result->total_steps : 0;
+        
+        // Count total pages
+        $sql_pages = "SELECT COUNT(DISTINCT qa.slot) as total_pages
+                      FROM {question_attempts} qa
+                      WHERE qa.questionusageid = :uniqueid";
+        
+        $result_pages = $DB->get_record_sql($sql_pages, ['uniqueid' => $uniqueid]);
+        $total_pages = $result_pages ? $result_pages->total_pages : 1;
+        
+        $steps_per_page = $total_pages > 0 ? ($total_steps / $total_pages) : 0;
+        
+        return [
+            'total_steps' => $total_steps,
+            'steps_per_page' => round($steps_per_page, 1),
+            'total_pages' => $total_pages
+        ];
+    }
+    
+    /**
+     * Send admin notification for timing-based detection
+     *
+     * @param int $userid User ID
+     * @param int $courseid Course ID
+     * @param string $quizname Quiz name
+     * @param float $minutes Completion time in minutes
+     * @param float $grade Grade percentage
+     * @param string $threshold Threshold triggered
+     * @param \moodle_url $pageurl URL to quiz
+     */
+    private static function notify_admin_timing_detection($userid, $courseid, $quizname, 
+                                                          $minutes, $grade, $threshold, $pageurl) {
+        global $DB;
+        
+        $user = $DB->get_record('user', ['id' => $userid]);
+        $course = $DB->get_record('course', ['id' => $courseid]);
+        $admins = get_admins();
+        
+        $subject = get_string('email_subject', 'local_aiagentblock', $course->shortname);
+        
+        $message = "AI Agent detected via timing analysis\n\n";
+        $message .= "Student: " . fullname($user) . " (" . $user->email . ")\n";
+        $message .= "Course: " . $course->fullname . "\n";
+        $message .= "Quiz: " . $quizname . "\n";
+        $message .= "Completion Time: " . $minutes . " minutes\n";
+        $message .= "Grade: " . round($grade, 1) . "%\n";
+        $message .= "Threshold: " . $threshold . "\n";
+        $message .= "Quiz URL: " . $pageurl->out(false) . "\n\n";
+        $message .= "View report: " . (new \moodle_url('/local/aiagentblock/report.php', 
+                                                       ['id' => $courseid]))->out(false);
+        
+        foreach ($admins as $admin) {
+            email_to_user($admin, $admin, $subject, $message);
         }
     }
 }
