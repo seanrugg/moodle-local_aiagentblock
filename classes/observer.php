@@ -140,22 +140,22 @@ class observer {
         // 2. TIMING CONSISTENCY CHECK (Too consistent = robotic)
         $timing_result = self::analyze_timing_consistency($attempt->uniqueid);
         if ($timing_result !== null) {
-            $timing_variance = $timing_result['cv_percent'];
-            $question_pages = $timing_result['question_pages'];
+            $cv_percent = $timing_result['cv_percent'];
+            $test_pages = $timing_result['question_pages'];
             $total_pages = $timing_result['total_pages'];
             
             // Low variance = robotic (AI signature)
-            if ($timing_variance < 5) {
+            if ($cv_percent < 5) {
                 $suspicion_score += 35;
-                $reasons[] = 'robotic_timing_cv_' . round($timing_variance, 1) . '%';
-            } else if ($timing_variance < 10) {
+                $reasons[] = 'robotic_timing_cv_' . round($cv_percent, 1) . '%';
+            } else if ($cv_percent < 10) {
                 $suspicion_score += 20;
-                $reasons[] = 'very_consistent_timing_cv_' . round($timing_variance, 1) . '%';
+                $reasons[] = 'very_consistent_timing_cv_' . round($cv_percent, 1) . '%';
             }
         } else {
-            $timing_variance = null;
-            $question_pages = 0;
-            $total_pages = 0;
+            $cv_percent = null;
+            $test_pages = null;
+            $total_pages = null;
         }
         
         // 3. SEQUENTIAL PATTERN (Perfect order = unusual)
@@ -191,8 +191,8 @@ class observer {
                 $grade_percent,
                 $threshold_triggered,
                 $attempt->id,
-                $timing_variance,
-                $question_pages,
+                $cv_percent,
+                $test_pages,
                 $total_pages,
                 $interaction_metrics
             );
@@ -215,15 +215,15 @@ class observer {
      * @param float $grade_percent Grade percentage
      * @param string $threshold Threshold description
      * @param int $attemptid Quiz attempt ID
-     * @param float|null $timing_variance CV% for timing consistency
-     * @param int $question_pages Number of question pages analyzed
-     * @param int $total_pages Total pages in attempt
+     * @param float|null $cv_percent CV% for timing consistency
+     * @param int|null $test_pages Number of question pages analyzed
+     * @param int|null $total_pages Total pages in attempt
      * @param array $interaction_metrics Interaction step counts
      */
     private static function log_timing_detection($userid, $courseid, $contextid, $cmid, $quizname, 
                                                   $score, $reasons, $duration, $minutes, 
                                                   $questioncount, $grade_percent, $threshold, $attemptid,
-                                                  $timing_variance, $question_pages, $total_pages, $interaction_metrics) {
+                                                  $cv_percent, $test_pages, $total_pages, $interaction_metrics) {
         global $DB;
         
         // Build page URL to the quiz attempt review
@@ -234,17 +234,17 @@ class observer {
         // Create detailed user agent string with timing info
         $user_agent = $_SERVER['HTTP_USER_AGENT'] ?? 'Unknown';
         
-        // Create browser field with comprehensive timing details
+        // Create browser field with comprehensive timing details (for debugging)
         $browser_info = sprintf(
             'Time: %.1f min (%d sec) | Questions: %d | Pages: %d/%d | Steps: %d (%.1f/pg) | CV%%: %s | Grade: %.1f%% | %s | Reasons: %s',
             $minutes,
             $duration,
             $questioncount,
-            $question_pages,
-            $total_pages,
+            $test_pages ?? 0,
+            $total_pages ?? 0,
             $interaction_metrics['total_steps'],
             $interaction_metrics['steps_per_page'],
-            $timing_variance !== null ? round($timing_variance, 1) . '%' : 'N/A',
+            $cv_percent !== null ? round($cv_percent, 1) . '%' : 'N/A',
             $grade_percent,
             $threshold,
             implode(', ', $reasons)
@@ -262,6 +262,17 @@ class observer {
         $record->browser = $browser_info;
         $record->ip_address = $_SERVER['REMOTE_ADDR'] ?? '';
         $record->suspicion_score = $score;
+        
+        // NEW: Store metrics in dedicated columns
+        $record->duration_seconds = $duration;
+        $record->question_count = $questioncount;
+        $record->grade_percent = round($grade_percent, 2);
+        $record->cv_percent = $cv_percent !== null ? round($cv_percent, 2) : null;
+        $record->test_pages = $test_pages;
+        $record->total_pages = $total_pages;
+        $record->total_steps = $interaction_metrics['total_steps'];
+        $record->steps_per_page = round($interaction_metrics['steps_per_page'], 2);
+        
         $record->timecreated = time();
         
         $DB->insert_record('local_aiagentblock_log', $record);
