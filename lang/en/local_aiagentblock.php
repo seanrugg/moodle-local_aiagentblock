@@ -163,3 +163,9 @@ $string['returntocourse'] = 'Return to course';
 $string['help_course_disable'] = 'Disable protection if this course requires students to use AI agents as learning tools.';
 $string['help_activity_disable'] = 'You can disable protection for specific activities while keeping it enabled for the rest of the course.';
 $string['help_legitimate_use'] = 'Some courses may require AI agent usage. Examples include: AI literacy courses, research projects involving AI tools, or collaborative AI assignments.';
+
+// Additional strings that might be referenced
+$string['delete_records'] = 'Delete old records';
+$string['delete_records_desc'] = 'Automatically delete detection records older than specified days.';
+$string['retention_days'] = 'Record retention (days)';
+$string['retention_days_desc'] = 'Number of days to keep detection records. Set to 0 to keep forever.';
