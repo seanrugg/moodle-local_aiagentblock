@@ -15,194 +15,164 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Admin interface for deleting AI agent detection records
+ * English language strings for AI Agent Blocker plugin
  *
  * @package    local_aiagentblock
- * @copyright  2025
+ * @copyright  2024
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-require_once(__DIR__ . '/../../config.php');
-require_once($CFG->libdir . '/adminlib.php');
+defined('MOODLE_INTERNAL') || die();
 
-admin_externalpage_setup('local_aiagentblock_delete');
+// Plugin name
+$string['pluginname'] = 'AI Agent Blocker';
 
-$courseid = optional_param('courseid', 0, PARAM_INT);
-$deleteall = optional_param('deleteall', 0, PARAM_INT);
-$deletecourse = optional_param('deletecourse', 0, PARAM_INT);
-$deleteold = optional_param('deleteold', 0, PARAM_INT);
-$confirm = optional_param('confirm', 0, PARAM_INT);
+// Capabilities
+$string['aiagentblock:viewreports'] = 'View AI agent detection reports';
+$string['aiagentblock:configure'] = 'Configure AI agent protection settings';
+$string['aiagentblock:managecourse'] = 'Manage course-level AI agent protection';
+$string['aiagentblock:manageactivity'] = 'Manage activity-level AI agent protection';
 
-require_login();
-require_capability('local/aiagentblock:configure', context_system::instance());
+// Settings page
+$string['settings_header'] = 'AI Agent Detection Settings';
+$string['enabled'] = 'Enable AI Agent Detection';
+$string['enabled_desc'] = 'Master switch to enable or disable AI agent detection site-wide. When disabled, no detection will occur.';
+$string['log_detections'] = 'Log Detection Events';
+$string['log_detections_desc'] = 'Record all AI agent detection events to the database for reporting.';
+$string['notify_admin'] = 'Notify Administrators';
+$string['notify_admin_desc'] = 'Send email notifications to site administrators when AI agents are detected.';
+$string['check_missing_headers'] = 'Check for Missing Headers';
+$string['check_missing_headers_desc'] = 'Flag requests that are missing standard browser headers as potential automation.';
+$string['block_access'] = 'Block Access';
+$string['block_access_desc'] = 'Immediately block detected AI agents from accessing content. If disabled, detections will only be logged.';
+$string['custom_message'] = 'Custom Blocking Message';
+$string['custom_message_desc'] = 'Custom message to display to blocked users. Leave empty for default message.';
 
-$PAGE->set_url('/local/aiagentblock/delete_records.php');
-$PAGE->set_context(context_system::instance());
-$PAGE->set_title(get_string('delete_records', 'local_aiagentblock'));
-$PAGE->set_heading(get_string('delete_records', 'local_aiagentblock'));
+// Blocking page
+$string['access_denied'] = 'Access Denied';
+$string['ai_agent_detected'] = 'AI agent activity has been detected. This course or activity does not permit AI agents to complete work on behalf of students.';
+$string['contact_instructor'] = 'If you believe this is an error, please contact your instructor or course administrator.';
+$string['detection_details'] = 'Detection Details';
+$string['blocked_timestamp'] = 'Time: {$a}';
+$string['blocked_reason'] = 'Reason: {$a}';
 
-// Handle deletions
-if ($confirm && confirm_sesskey()) {
-    if ($deleteall) {
-        // Delete ALL records
-        $count = $DB->count_records('local_aiagentblock_log');
-        $DB->delete_records('local_aiagentblock_log');
-        
-        redirect(
-            $PAGE->url,
-            get_string('records_deleted', 'local_aiagentblock', $count),
-            null,
-            \core\output\notification::NOTIFY_SUCCESS
-        );
-    } else if ($deletecourse && $courseid) {
-        // Delete records for specific course
-        $count = $DB->count_records('local_aiagentblock_log', ['courseid' => $courseid]);
-        $DB->delete_records('local_aiagentblock_log', ['courseid' => $courseid]);
-        
-        redirect(
-            $PAGE->url,
-            get_string('records_deleted', 'local_aiagentblock', $count),
-            null,
-            \core\output\notification::NOTIFY_SUCCESS
-        );
-    } else if ($deleteold) {
-        // Delete records older than 90 days
-        $cutoff = time() - (90 * 24 * 60 * 60);
-        $count = $DB->count_records_select('local_aiagentblock_log', 'timecreated < ?', [$cutoff]);
-        $DB->delete_records_select('local_aiagentblock_log', 'timecreated < ?', [$cutoff]);
-        
-        redirect(
-            $PAGE->url,
-            get_string('records_deleted', 'local_aiagentblock', $count),
-            null,
-            \core\output\notification::NOTIFY_SUCCESS
-        );
-    }
-}
+// Course settings
+$string['course_settings_header'] = 'AI Agent Protection';
+$string['course_protection_enabled'] = 'Enable AI Agent Protection for this Course';
+$string['course_protection_enabled_help'] = 'When enabled, AI agents will be detected and blocked from completing coursework on behalf of students in this course. Disable this setting if your course requires students to use AI agents as part of the learning objectives.';
+$string['course_protection_disabled'] = 'AI agent protection is currently disabled for this course';
+$string['course_protection_enabled_notice'] = 'AI agent protection is currently enabled for this course';
 
-echo $OUTPUT->header();
-echo $OUTPUT->heading(get_string('delete_records', 'local_aiagentblock'));
+// Activity settings
+$string['activity_settings_header'] = 'AI Agent Protection';
+$string['activity_protection'] = 'AI Agent Protection Setting';
+$string['activity_protection_help'] = 'Control whether AI agents are blocked for this specific activity.';
+$string['activity_protection_default'] = 'Use course default';
+$string['activity_protection_enabled'] = 'Enable protection (block AI agents)';
+$string['activity_protection_disabled'] = 'Disable protection (allow AI agents)';
 
-// Show current record counts
-$total_records = $DB->count_records('local_aiagentblock_log');
-$cutoff = time() - (90 * 24 * 60 * 60);
-$old_records = $DB->count_records_select('local_aiagentblock_log', 'timecreated < ?', [$cutoff]);
+// Reports
+$string['report_title'] = 'AI Agent Detection Report';
+$string['report_course_title'] = 'AI Agent Detections in {$a}';
+$string['no_detections'] = 'No AI agent detections have been logged for this course.';
+$string['detections_found'] = '{$a} detection(s) found';
+$string['view_report'] = 'View AI Agent Detection Report';
 
-echo html_writer::div('', 'mb-3');
-echo $OUTPUT->notification(
-    get_string('total_records', 'local_aiagentblock', $total_records),
-    \core\output\notification::NOTIFY_INFO
-);
+// Report table headers
+$string['col_username'] = 'Username';
+$string['col_timestamp'] = 'Date/Time';
+$string['col_ipaddress'] = 'IP Address';
+$string['col_useragent'] = 'AI Agent';
+$string['col_browser'] = 'Browser';
+$string['col_duration'] = 'Duration';
+$string['col_questions'] = 'Questions';
+$string['col_grade'] = 'Grade';
+$string['col_cvpercent'] = 'CV%';
+$string['col_testpages'] = 'Test Pages';
+$string['col_totalsteps'] = 'Total Steps';
+$string['col_stepsperpage'] = 'Steps/Page';
+$string['col_location'] = 'Location';
+$string['col_suspicionscore'] = 'Suspicion Score';
+$string['col_protectionlevel'] = 'Protection Level';
+$string['col_detectionmethod'] = 'Detection Method';
+$string['col_actions'] = 'Actions';
 
-if ($old_records > 0) {
-    echo $OUTPUT->notification(
-        get_string('old_records', 'local_aiagentblock', $old_records),
-        \core\output\notification::NOTIFY_WARNING
-    );
-}
+// Report values
+$string['protection_level_course'] = 'Course-level';
+$string['protection_level_activity'] = 'Activity-level';
+$string['detection_method_user_agent'] = 'User Agent';
+$string['detection_method_headers'] = 'HTTP Headers';
+$string['detection_method_client_side'] = 'Client-side JavaScript';
+$string['detection_method_timing'] = 'Timing Analysis';
+$string['view_details'] = 'View Details';
+$string['export_csv'] = 'Export to CSV';
 
-// Delete all records section
-echo html_writer::div('', 'mt-4 mb-3');
-echo $OUTPUT->heading(get_string('delete_all_records', 'local_aiagentblock'), 3);
-echo html_writer::div(
-    get_string('delete_all_warning', 'local_aiagentblock'),
-    'alert alert-danger'
-);
+// Detection methods
+$string['detected_chatgpt'] = 'ChatGPT Browser Automation';
+$string['detected_manus'] = 'Manus AI';
+$string['detected_perplexity'] = 'Perplexity Comet';
+$string['detected_generic'] = 'Generic AI Agent';
+$string['detected_automation'] = 'Browser Automation Tool';
+$string['detected_canvas'] = 'Canvas Fingerprint Anomaly';
+$string['detected_screenshot'] = 'Screen Capture Activity';
+$string['detected_media_recorder'] = 'Media Recording Activity';
 
-$deleteallurl = new moodle_url($PAGE->url, [
-    'deleteall' => 1,
-    'confirm' => 1,
-    'sesskey' => sesskey()
-]);
+// Email notifications
+$string['email_subject'] = 'AI Agent Detection Alert - {$a}';
+$string['email_body'] = 'An AI agent has been detected attempting to access course content on behalf of a student.
 
-echo $OUTPUT->single_button(
-    $deleteallurl,
-    get_string('delete_all_records', 'local_aiagentblock'),
-    'post',
-    ['class' => 'btn-danger']
-);
+Student: {$a->studentname} ({$a->username})
+Email: {$a->email}
+Course: {$a->coursename}
+Location: {$a->location}
+Detection Method: {$a->method}
+User Agent: {$a->useragent}
+IP Address: {$a->ipaddress}
+Browser: {$a->browser}
+Time: {$a->timestamp}
 
-// Delete records by course section
-echo html_writer::div('', 'mt-4 mb-3');
-echo $OUTPUT->heading(get_string('delete_course_records', 'local_aiagentblock'), 3);
+View full report: {$a->reporturl}';
 
-$courses = $DB->get_records_sql("
-    SELECT DISTINCT c.id, c.fullname, c.shortname, COUNT(l.id) as record_count
-    FROM {course} c
-    INNER JOIN {local_aiagentblock_log} l ON l.courseid = c.id
-    GROUP BY c.id, c.fullname, c.shortname
-    ORDER BY c.fullname
-");
+// Privacy
+$string['privacy:metadata:local_aiagentblock_log'] = 'Logs AI agent detection events';
+$string['privacy:metadata:local_aiagentblock_log:userid'] = 'The ID of the user whose account was accessed by an AI agent';
+$string['privacy:metadata:local_aiagentblock_log:courseid'] = 'The course where the detection occurred';
+$string['privacy:metadata:local_aiagentblock_log:pageurl'] = 'The URL where the AI agent was detected';
+$string['privacy:metadata:local_aiagentblock_log:user_agent'] = 'The user agent string of the AI agent';
+$string['privacy:metadata:local_aiagentblock_log:browser'] = 'Browser information';
+$string['privacy:metadata:local_aiagentblock_log:ip_address'] = 'The IP address from which the AI agent accessed the system';
+$string['privacy:metadata:local_aiagentblock_log:timecreated'] = 'When the AI agent was detected';
 
-if (empty($courses)) {
-    echo $OUTPUT->notification(
-        get_string('no_course_records', 'local_aiagentblock'),
-        \core\output\notification::NOTIFY_INFO
-    );
-} else {
-    echo html_writer::start_tag('table', ['class' => 'table table-striped']);
-    echo html_writer::start_tag('thead');
-    echo html_writer::start_tag('tr');
-    echo html_writer::tag('th', get_string('course'));
-    echo html_writer::tag('th', get_string('col_recordcount', 'local_aiagentblock'));
-    echo html_writer::tag('th', get_string('actions'));
-    echo html_writer::end_tag('tr');
-    echo html_writer::end_tag('thead');
-    echo html_writer::start_tag('tbody');
-    
-    foreach ($courses as $course) {
-        echo html_writer::start_tag('tr');
-        echo html_writer::tag('td', $course->fullname . ' (' . $course->shortname . ')');
-        echo html_writer::tag('td', $course->record_count);
-        
-        $deleteurl = new moodle_url($PAGE->url, [
-            'courseid' => $course->id,
-            'deletecourse' => 1,
-            'confirm' => 1,
-            'sesskey' => sesskey()
-        ]);
-        
-        echo html_writer::start_tag('td');
-        echo $OUTPUT->single_button(
-            $deleteurl,
-            get_string('delete'),
-            'post',
-            ['class' => 'btn-sm btn-danger']
-        );
-        echo html_writer::end_tag('td');
-        echo html_writer::end_tag('tr');
-    }
-    
-    echo html_writer::end_tag('tbody');
-    echo html_writer::end_tag('table');
-}
+// Errors
+$string['error_no_permission'] = 'You do not have permission to view this report.';
+$string['error_invalid_course'] = 'Invalid course ID.';
+$string['error_no_course_context'] = 'Could not determine course context.';
+$string['error_save_failed'] = 'Failed to save settings. Please try again.';
 
-// Delete old records section
-echo html_writer::div('', 'mt-4 mb-3');
-echo $OUTPUT->heading(get_string('delete_old_records', 'local_aiagentblock'), 3);
-echo html_writer::div(
-    get_string('delete_old_warning', 'local_aiagentblock', 90),
-    'alert alert-warning'
-);
+// Success messages
+$string['settings_saved'] = 'Settings saved successfully.';
+$string['course_protection_updated'] = 'Course protection settings updated.';
+$string['activity_protection_updated'] = 'Activity protection settings updated.';
 
-if ($old_records > 0) {
-    $deleteoldurl = new moodle_url($PAGE->url, [
-        'deleteold' => 1,
-        'confirm' => 1,
-        'sesskey' => sesskey()
-    ]);
-    
-    echo $OUTPUT->single_button(
-        $deleteoldurl,
-        get_string('delete_old_records', 'local_aiagentblock') . " ({$old_records})",
-        'post',
-        ['class' => 'btn-warning']
-    );
-} else {
-    echo $OUTPUT->notification(
-        get_string('no_old_records', 'local_aiagentblock'),
-        \core\output\notification::NOTIFY_INFO
-    );
-}
+// Navigation
+$string['nav_reports'] = 'AI Agent Detections';
+$string['nav_settings'] = 'AI Agent Protection Settings';
+$string['returntocourse'] = 'Return to course';
 
-echo $OUTPUT->footer();
+// Help text
+$string['help_course_disable'] = 'Disable protection if this course requires students to use AI agents as learning tools.';
+$string['help_activity_disable'] = 'You can disable protection for specific activities while keeping it enabled for the rest of the course.';
+$string['help_legitimate_use'] = 'Some courses may require AI agent usage. Examples include: AI literacy courses, research projects involving AI tools, or collaborative AI assignments.';
+
+// Additional strings that might be referenced
+$string['datamanagement_header'] = 'Data Management';
+$string['auto_delete_records'] = 'Automatically delete old records';
+$string['auto_delete_records_desc'] = 'Enable automatic deletion of detection records older than the retention period.';
+$string['delete_records'] = 'Delete detection records';
+$string['delete_records_desc'] = 'Manually delete all detection records from the database. This action cannot be undone.';
+$string['delete_all_records'] = 'Delete All Detection Records';
+$string['retention_days'] = 'Record retention (days)';
+$string['retention_days_desc'] = 'Number of days to keep detection records before automatic deletion. Only applies if automatic deletion is enabled. Set to 90 days by default.';
+$string['confirm_delete_all'] = 'Are you sure you want to delete ALL detection records? This cannot be undone!';
+$string['records_deleted'] = '{$a} detection records have been deleted.';
+$string['no_records_to_delete'] = 'No records found to delete.';
