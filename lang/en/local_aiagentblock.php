@@ -176,3 +176,6 @@ $string['retention_days_desc'] = 'Number of days to keep detection records befor
 $string['confirm_delete_all'] = 'Are you sure you want to delete ALL detection records? This cannot be undone!';
 $string['records_deleted'] = '{$a} detection records have been deleted.';
 $string['no_records_to_delete'] = 'No records found to delete.';
+
+// Scheduled task
+$string['cleanup_old_records'] = 'Clean up old AI agent detection records';
