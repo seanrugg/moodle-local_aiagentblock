@@ -25,8 +25,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_aiagentblock';
-$plugin->version = 2025120503;  // Updated: Enhanced behavioral analysis and data collection
+$plugin->version = 2025120900;  // Updated: Enhanced behavioral analysis and data collection
 $plugin->requires = 2022041900; // Moodle 4.0 minimum (compatible through 5.1+)
 $plugin->supported = [400, 501]; // Moodle 4.0 to 5.1 (and higher)
 $plugin->maturity = MATURITY_BETA;
-$plugin->release = 'v1.4.0-beta';
+$plugin->release = 'v1.4.1-beta';
