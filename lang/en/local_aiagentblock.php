@@ -165,7 +165,14 @@ $string['help_activity_disable'] = 'You can disable protection for specific acti
 $string['help_legitimate_use'] = 'Some courses may require AI agent usage. Examples include: AI literacy courses, research projects involving AI tools, or collaborative AI assignments.';
 
 // Additional strings that might be referenced
-$string['delete_records'] = 'Delete old records';
-$string['delete_records_desc'] = 'Automatically delete detection records older than specified days.';
+$string['datamanagement_header'] = 'Data Management';
+$string['auto_delete_records'] = 'Automatically delete old records';
+$string['auto_delete_records_desc'] = 'Enable automatic deletion of detection records older than the retention period.';
+$string['delete_records'] = 'Delete detection records';
+$string['delete_records_desc'] = 'Manually delete all detection records from the database. This action cannot be undone.';
+$string['delete_all_records'] = 'Delete All Detection Records';
 $string['retention_days'] = 'Record retention (days)';
-$string['retention_days_desc'] = 'Number of days to keep detection records. Set to 0 to keep forever.';
+$string['retention_days_desc'] = 'Number of days to keep detection records before automatic deletion. Only applies if automatic deletion is enabled. Set to 90 days by default.';
+$string['confirm_delete_all'] = 'Are you sure you want to delete ALL detection records? This cannot be undone!';
+$string['records_deleted'] = '{$a} detection records have been deleted.';
+$string['no_records_to_delete'] = 'No records found to delete.';
