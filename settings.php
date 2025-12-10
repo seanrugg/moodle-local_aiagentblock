@@ -93,4 +93,41 @@ if ($hassiteconfig) {
         4
     ));
     
+    // === DATA MANAGEMENT SECTION ===
+    
+    $settings->add(new admin_setting_heading(
+        'local_aiagentblock/datamanagement_header',
+        get_string('datamanagement_header', 'local_aiagentblock'),
+        ''
+    ));
+    
+    // Automatic record deletion
+    $settings->add(new admin_setting_configcheckbox(
+        'local_aiagentblock/auto_delete_records',
+        get_string('auto_delete_records', 'local_aiagentblock'),
+        get_string('auto_delete_records_desc', 'local_aiagentblock'),
+        0
+    ));
+    
+    // Retention period in days
+    $settings->add(new admin_setting_configtext(
+        'local_aiagentblock/retention_days',
+        get_string('retention_days', 'local_aiagentblock'),
+        get_string('retention_days_desc', 'local_aiagentblock'),
+        '90',
+        PARAM_INT
+    ));
+    
+    // Manual delete all records button
+    $settings->add(new admin_setting_description(
+        'local_aiagentblock/delete_records',
+        get_string('delete_records', 'local_aiagentblock'),
+        get_string('delete_records_desc', 'local_aiagentblock') . '<br><br>' .
+        html_writer::link(
+            new moodle_url('/local/aiagentblock/delete_records.php'),
+            get_string('delete_all_records', 'local_aiagentblock'),
+            ['class' => 'btn btn-danger']
+        )
+    ));
+    
 }
