@@ -15,10 +15,10 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Scheduled task definitions for AI Agent Blocker plugin
+ * Task definitions for AI Agent Blocker plugin
  *
  * @package    local_aiagentblock
- * @copyright  2025
+ * @copyright  2024
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
@@ -26,12 +26,12 @@ defined('MOODLE_INTERNAL') || die();
 
 $tasks = [
     [
-        'classname' => 'local_aiagentblock\task\cleanup_old_logs',
+        'classname' => 'local_aiagentblock\task\cleanup_old_records',
         'blocking' => 0,
         'minute' => '0',
-        'hour' => '2',
+        'hour' => '2',      // Run at 2:00 AM
         'day' => '*',
         'month' => '*',
-        'dayofweek' => '0', // Sunday
-    ],
+        'dayofweek' => '*'
+    ]
 ];
