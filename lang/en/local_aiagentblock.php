@@ -192,3 +192,10 @@ $string['no_records_to_delete'] = 'No records found to delete.';
 
 // Scheduled task
 $string['cleanup_old_records'] = 'Clean up old AI agent detection records';
+
+// Individual record deletion
+$string['confirm_delete'] = 'Confirm Deletion';
+$string['confirm_delete_message'] = 'Are you sure you want to delete the detection record for {$a->username} from {$a->time}?';
+$string['are_you_sure'] = 'This action cannot be undone.';
+$string['record_deleted'] = 'Detection record deleted successfully.';
+$string['record_not_found'] = 'Detection record not found or does not belong to this course.';
