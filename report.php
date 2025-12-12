@@ -202,9 +202,9 @@ if (empty($records)) {
         
         // CV Percent (Timing Variance)
         if ($record->cv_percent !== null) {
-            $cv_display = round($record->cv_percent, 1) . '%';
+            $cv_display = number_format($record->cv_percent, 1) . '%';
             if (!$table->is_downloading()) {
-                // Low CV% = suspicious (robotic)
+                // Low CV% = suspicious (robotic), High CV% = normal (human variance)
                 if ($record->cv_percent < 5) {
                     $cv_class = 'badge badge-danger';
                     $cv_label = 'Robotic';
@@ -215,8 +215,8 @@ if (empty($records)) {
                     $cv_class = 'badge badge-success';
                     $cv_label = 'Normal';
                 } else {
-                    $cv_class = 'badge badge-info';
-                    $cv_label = 'High Variance';
+                    $cv_class = 'badge badge-success';
+                    $cv_label = 'High Variance (Normal)';
                 }
                 $cv_display = html_writer::tag('span', $cv_display, ['class' => $cv_class]) .
                              html_writer::tag('div', $cv_label, ['class' => 'small text-muted']);
@@ -248,20 +248,22 @@ if (empty($records)) {
         }
         
         // Steps Per Page
-        if ($record->steps_per_page !== null) {
-            $stepsperpage_display = round($record->steps_per_page, 1);
+        if ($record->steps_per_page !== null && $record->steps_per_page > 0) {
+            $stepsperpage_display = number_format($record->steps_per_page, 1);
             if (!$table->is_downloading()) {
                 // Low steps per page = suspicious
+                // Use high-contrast colors for visibility
                 if ($record->steps_per_page < 2) {
-                    $steps_class = 'text-danger font-weight-bold';
+                    $steps_class = 'text-danger font-weight-bold';  // Red - very suspicious
                 } else if ($record->steps_per_page < 3) {
-                    $steps_class = 'text-warning';
+                    $steps_class = 'font-weight-bold';  // Black bold - somewhat suspicious
+                    $stepsperpage_display = '⚠️ ' . $stepsperpage_display;  // Add warning icon
                 } else {
-                    $steps_class = '';
+                    $steps_class = 'text-success';  // Green - normal
                 }
                 $stepsperpage_display = html_writer::tag('span', $stepsperpage_display, [
                     'class' => $steps_class,
-                    'title' => 'Average interaction steps per page',
+                    'title' => 'Average interaction steps per page (Low = suspicious)',
                     'data-toggle' => 'tooltip'
                 ]);
             }
