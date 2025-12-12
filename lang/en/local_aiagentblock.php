@@ -47,6 +47,9 @@ $string['block_access'] = 'Block Access';
 $string['block_access_desc'] = 'Immediately block detected AI agents from accessing content. If disabled, detections will only be logged.';
 $string['custom_message'] = 'Custom Blocking Message';
 $string['custom_message_desc'] = 'Custom message to display to blocked users. Leave empty for default message.';
+$string['settings_header'] = 'AI Agent Detection Settings';
+$string['settings_header_desc'] = 'Configure how AI agents are detected and blocked on your Moodle site.';
+$string['enabled'] = 'Enable AI Agent Detection';
 
 // Blocking page
 $string['access_denied'] = 'Access Denied';
@@ -126,6 +129,48 @@ $string['detected_automation'] = 'Browser Automation Tool';
 $string['detected_canvas'] = 'Canvas Fingerprint Anomaly';
 $string['detected_screenshot'] = 'Screen Capture Activity';
 $string['detected_media_recorder'] = 'Media Recording Activity';
+
+// More Detection methods section
+$string['detection_methods_header'] = 'Detection Methods';
+$string['detection_methods_header_desc'] = 'Enable or disable specific detection techniques...';
+$string['detect_user_agent'] = 'User Agent Detection';
+$string['detect_user_agent_desc'] = 'Scan HTTP user agent strings...';
+$string['detect_canvas'] = 'Canvas Fingerprinting';
+$string['detect_canvas_desc'] = 'Test browser canvas rendering...';
+$string['detect_screenshots'] = 'Screenshot Detection';
+$string['detect_screenshots_desc'] = 'Detect when AI agents capture screenshots...';
+$string['detect_mouse_movement'] = 'Mouse Movement Analysis';
+$string['detect_mouse_movement_desc'] = 'Monitor for absence of mouse movement...';
+$string['detect_timing'] = 'Timing Analysis (Quiz)';
+$string['detect_timing_desc'] = 'Flag quiz attempts completed impossibly fast...';
+
+// Thresholds section
+$string['thresholds_header'] = 'Detection Thresholds';
+$string['thresholds_header_desc'] = 'Configure sensitivity of detection...';
+$string['suspicion_threshold'] = 'Suspicion Score Threshold';
+$string['suspicion_threshold_desc'] = 'Minimum score required to flag/block...';
+$string['threshold_very_sensitive'] = 'Very Sensitive (may cause false positives)';
+$string['threshold_sensitive'] = 'Sensitive';
+$string['threshold_moderate'] = 'Moderate';
+$string['threshold_strict'] = 'Strict';
+$string['threshold_very_strict'] = 'Very Strict (may miss some agents)';
+$string['quiz_speed_threshold'] = 'Quiz Minimum Duration (minutes)';
+$string['quiz_speed_threshold_desc'] = 'Flag quiz attempts completed faster...';
+
+// Logging section
+$string['logging_header'] = 'Logging & Notifications';
+$string['logging_header_desc'] = 'Control how detection events are logged and reported.';
+
+// Customization section
+$string['customization_header'] = 'Customization';
+$string['default_block_message'] = 'AI agent activity has been detected...';
+
+// Data Management section
+$string['data_management_header'] = 'Data Management';
+$string['data_management_header_desc'] = 'Manage detection records stored in the database.';
+$string['delete_detection_records'] = 'Delete Detection Records';
+$string['delete_records_warning'] = 'Manually delete all detection records...';
+$string['delete_all_records_button'] = 'Delete All Detection Records';
 
 // Email notifications
 $string['email_subject'] = 'AI Agent Detection Alert - {$a}';
