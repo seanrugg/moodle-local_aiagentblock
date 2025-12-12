@@ -1,10 +1,10 @@
-# Detection Enhancement Implementation - December 2024
+# Detection Enhancement Implementation - December 2025
 
 ## Overview
 
 This document details the four major enhancements implemented to improve AI agent detection based on testing results from Comet and Manus AI.
 
-**Implementation Date:** December 3, 2024  
+**Implementation Date:** December 3, 2025  
 **Modified Files:**
 - `classes/detector.php` - Complete rewrite of JavaScript detection
 - `lang/en/local_aiagentblock.php` - Added new detection method strings
