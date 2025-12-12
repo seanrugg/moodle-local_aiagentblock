@@ -184,6 +184,9 @@ $string['delete_all_records'] = 'Delete All Detection Records';
 $string['retention_days'] = 'Record retention (days)';
 $string['retention_days_desc'] = 'Number of days to keep detection records before automatic deletion. Only applies if automatic deletion is enabled. Set to 90 days by default.';
 $string['confirm_delete_all'] = 'Are you sure you want to delete ALL detection records? This cannot be undone!';
+$string['about_to_delete'] = 'You are about to delete {$a} detection records. This action cannot be undone.';
+$string['record_deleted'] = 'Detection record has been deleted.';
+$string['record_not_found'] = 'Detection record not found.';
 $string['records_deleted'] = '{$a} detection records have been deleted.';
 $string['no_records_to_delete'] = 'No records found to delete.';
 
