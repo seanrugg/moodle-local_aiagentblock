@@ -91,6 +91,16 @@ $string['col_cvpercent'] = 'CV%';
 $string['col_testpages'] = 'Test Pages';
 $string['col_totalsteps'] = 'Total Steps';
 $string['col_stepsperpage'] = 'Steps/Page';
+$string['col_totalinteractions'] = 'Total Interactions';
+$string['col_interactionsperpage'] = 'Interactions/Page';
+$string['col_detectionreasons'] = 'Detection Reasons';
+
+// Metric explanations
+$string['metric_explanations_title'] = 'Understanding the Metrics';
+$string['metric_cv_explain'] = 'Coefficient of Variation - measures timing consistency. Low values (<10%) indicate robotic behavior, while higher values (>20%) indicate natural human variance.';
+$string['metric_suspicion_explain'] = 'Suspicion Score - weighted combination of detection signals. 0-49%=Low, 50-69%=Moderate, 70-89%=High, 90%+=Critical.';
+$string['metric_testpages_explain'] = 'Test Pages - shows question pages analyzed (≥10 seconds) vs total pages. Low ratio may indicate instant navigation through review pages.';
+$string['metric_interactions_explain'] = 'Total Interactions - number of recorded user interactions (clicks, inputs, changes). Low values indicate minimal engagement typical of AI agents.';
 $string['col_location'] = 'Location';
 $string['col_suspicionscore'] = 'Suspicion Score';
 $string['col_protectionlevel'] = 'Protection Level';
