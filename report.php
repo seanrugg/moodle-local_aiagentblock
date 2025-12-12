@@ -27,12 +27,75 @@ require_once($CFG->libdir . '/tablelib.php');
 
 $courseid = required_param('id', PARAM_INT);
 $download = optional_param('download', '', PARAM_ALPHA);
+$delete = optional_param('delete', 0, PARAM_INT); // Record ID to delete
+$confirm = optional_param('confirm', 0, PARAM_BOOL); // Confirm deletion
 
 $course = $DB->get_record('course', ['id' => $courseid], '*', MUST_EXIST);
 $context = context_course::instance($courseid);
 
 require_login($course);
 require_capability('local/aiagentblock:viewreports', $context);
+
+// Handle deletion if requested
+if ($delete && confirm_sesskey()) {
+    $record = $DB->get_record('local_aiagentblock_log', ['id' => $delete, 'courseid' => $courseid]);
+    
+    if ($record && $confirm) {
+        // Delete the record
+        $DB->delete_records('local_aiagentblock_log', ['id' => $delete]);
+        redirect(
+            new moodle_url('/local/aiagentblock/report.php', ['id' => $courseid]),
+            get_string('record_deleted', 'local_aiagentblock'),
+            null,
+            \core\output\notification::NOTIFY_SUCCESS
+        );
+    } else if ($record) {
+        // Show confirmation page
+        $PAGE->set_url('/local/aiagentblock/report.php', ['id' => $courseid]);
+        $PAGE->set_context($context);
+        $PAGE->set_course($course);
+        $PAGE->set_pagelayout('incourse');
+        $PAGE->set_title(get_string('confirm_delete', 'local_aiagentblock'));
+        $PAGE->set_heading($course->fullname);
+        
+        echo $OUTPUT->header();
+        echo $OUTPUT->heading(get_string('confirm_delete', 'local_aiagentblock'));
+        
+        $user = $DB->get_record('user', ['id' => $record->userid]);
+        
+        echo html_writer::start_div('alert alert-warning');
+        echo html_writer::tag('p', get_string('confirm_delete_message', 'local_aiagentblock', [
+            'username' => fullname($user),
+            'time' => userdate($record->timecreated, get_string('strftimedatetimeshort'))
+        ]));
+        echo html_writer::end_div();
+        
+        $continueurl = new moodle_url('/local/aiagentblock/report.php', [
+            'id' => $courseid,
+            'delete' => $delete,
+            'confirm' => 1,
+            'sesskey' => sesskey()
+        ]);
+        $cancelurl = new moodle_url('/local/aiagentblock/report.php', ['id' => $courseid]);
+        
+        echo $OUTPUT->confirm(
+            get_string('are_you_sure', 'local_aiagentblock'),
+            $continueurl,
+            $cancelurl
+        );
+        
+        echo $OUTPUT->footer();
+        die();
+    } else {
+        // Record not found or doesn't belong to this course
+        redirect(
+            new moodle_url('/local/aiagentblock/report.php', ['id' => $courseid]),
+            get_string('record_not_found', 'local_aiagentblock'),
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
+    }
+}
 
 // CRITICAL: Set up PAGE before any output, but only if not downloading
 if (empty($download)) {
@@ -60,7 +123,8 @@ $table->define_columns([
     'interactionsperpage',
     'suspicionscore',
     'location',
-    'detectionreasons'
+    'detectionreasons',
+    'actions'
 ]);
 
 $table->define_headers([
@@ -77,13 +141,16 @@ $table->define_headers([
     get_string('col_interactionsperpage', 'local_aiagentblock'),
     get_string('col_suspicionscore', 'local_aiagentblock'),
     get_string('col_location', 'local_aiagentblock'),
-    get_string('col_detectionreasons', 'local_aiagentblock')
+    get_string('col_detectionreasons', 'local_aiagentblock'),
+    get_string('col_actions', 'local_aiagentblock')
 ]);
 
 $table->define_baseurl($PAGE->url);
 $table->sortable(true, 'timecreated', SORT_DESC);
 $table->no_sorting('agent');
 $table->no_sorting('location');
+$table->no_sorting('detectionreasons');
+$table->no_sorting('actions');
 $table->collapsible(false);
 $table->is_downloadable(true);
 $table->show_download_buttons_at([TABLE_P_BOTTOM]);
@@ -262,7 +329,7 @@ if (empty($records)) {
                     $cv_label = 'Normal';
                 } else {
                     $cv_class = 'badge badge-success';
-                    $cv_label = 'High Variance (Normal)';
+                    $cv_label = 'High Variance';
                 }
                 $cv_display = html_writer::tag('span', $cv_display, ['class' => $cv_class]) .
                              html_writer::tag('div', $cv_label, ['class' => 'small text-muted']);
@@ -284,41 +351,40 @@ if (empty($records)) {
             $testpages_display = 'N/A';
         }
         
-        // Total Steps
-        $totalsteps_display = $record->total_steps ?? 'N/A';
-        if (!$table->is_downloading() && $totalsteps_display !== 'N/A') {
-            $totalsteps_display = html_writer::tag('span', $totalsteps_display, [
+        // Total Interactions
+        $totalinteractions_display = $record->total_steps ?? 'N/A';
+        if (!$table->is_downloading() && $totalinteractions_display !== 'N/A') {
+            $totalinteractions_display = html_writer::tag('span', $totalinteractions_display, [
                 'title' => 'Total interaction steps recorded',
                 'data-toggle' => 'tooltip'
             ]);
         }
         
-        // Steps Per Page
+        // Interactions Per Page
         if ($record->steps_per_page !== null && $record->steps_per_page > 0) {
-            $stepsperpage_display = number_format($record->steps_per_page, 1);
+            $interactionsperpage_display = number_format($record->steps_per_page, 1);
             if (!$table->is_downloading()) {
                 // Low steps per page = suspicious
-                // Use high-contrast colors for visibility
                 if ($record->steps_per_page < 2) {
-                    $steps_class = 'text-danger font-weight-bold';  // Red - very suspicious
+                    $steps_class = 'text-danger font-weight-bold';
                 } else if ($record->steps_per_page < 3) {
-                    $steps_class = 'font-weight-bold';  // Black bold - somewhat suspicious
-                    $stepsperpage_display = '⚠️ ' . $stepsperpage_display;  // Add warning icon
+                    $steps_class = 'font-weight-bold';
+                    $interactionsperpage_display = '⚠️ ' . $interactionsperpage_display;
                 } else {
-                    $steps_class = 'text-success';  // Green - normal
+                    $steps_class = 'text-success';
                 }
-                $stepsperpage_display = html_writer::tag('span', $stepsperpage_display, [
+                $interactionsperpage_display = html_writer::tag('span', $interactionsperpage_display, [
                     'class' => $steps_class,
-                    'title' => 'Average interaction steps per page (Low = suspicious)',
+                    'title' => 'Average interaction steps per page',
                     'data-toggle' => 'tooltip'
                 ]);
             }
         } else {
-            $stepsperpage_display = 'N/A';
+            $interactionsperpage_display = 'N/A';
         }
         
         // Suspicion Score with color coding - display as percentage
-        $suspicion_score = $record->suspicion_score ?? 0;
+        $suspicion_score = isset($record->suspicion_score) ? (int)$record->suspicion_score : 0;
         $suspicion_percent = min($suspicion_score, 100); // Cap at 100% for display
         
         if (!$table->is_downloading()) {
@@ -338,7 +404,7 @@ if (empty($records)) {
                 $confidence_text = 'Low';
             }
             $suspicion_display = html_writer::tag('span', $suspicion_percent . '%', ['class' => $score_class]) .
-                                html_writer::tag('div', $confidence_text, ['class' => 'small text-muted']);
+                                html_writer::tag('div', $confidence_text, ['class' => 'small text-muted mt-1']);
         } else {
             $suspicion_display = $suspicion_percent . '% (' . ($suspicion_score >= 90 ? 'Critical' : 
                                 ($suspicion_score >= 70 ? 'High' : 
@@ -346,7 +412,7 @@ if (empty($records)) {
         }
         
         // Detection Reasons - parse from browser field
-        $detection_reasons = self::parse_detection_reasons($record->browser);
+        $detection_reasons = parse_detection_reasons($record->browser);
         if (!$table->is_downloading() && !empty($detection_reasons)) {
             $reasons_html = '';
             foreach ($detection_reasons as $reason) {
@@ -383,22 +449,24 @@ if (empty($records)) {
             $location = get_string('course') . ': ' . $course->shortname;
         }
         
-        // Detection method
-        switch ($record->detection_method) {
-            case 'user_agent':
-                $detectionmethod = get_string('detection_method_user_agent', 'local_aiagentblock');
-                break;
-            case 'headers':
-                $detectionmethod = get_string('detection_method_headers', 'local_aiagentblock');
-                break;
-            case 'client_side':
-                $detectionmethod = get_string('detection_method_client_side', 'local_aiagentblock');
-                break;
-            case 'timing_analysis':
-                $detectionmethod = get_string('detection_method_timing', 'local_aiagentblock');
-                break;
-            default:
-                $detectionmethod = $record->detection_method;
+        // Actions (delete button)
+        if ($table->is_downloading()) {
+            $actions = '';
+        } else {
+            $deleteurl = new moodle_url('/local/aiagentblock/report.php', [
+                'id' => $courseid,
+                'delete' => $record->id,
+                'sesskey' => sesskey()
+            ]);
+            $actions = html_writer::link(
+                $deleteurl,
+                html_writer::tag('i', '', ['class' => 'fa fa-trash']),
+                [
+                    'class' => 'btn btn-sm btn-danger',
+                    'title' => get_string('delete'),
+                    'aria-label' => get_string('delete')
+                ]
+            );
         }
         
         $table->add_data([
@@ -411,11 +479,12 @@ if (empty($records)) {
             $grade_display,
             $cv_display,
             $testpages_display,
-            $totalsteps_display,
-            $stepsperpage_display,
+            $totalinteractions_display,
+            $interactionsperpage_display,
             $suspicion_display,
             $location,
-            $detectionreasons
+            $detectionreasons,
+            $actions
         ]);
     }
 }
