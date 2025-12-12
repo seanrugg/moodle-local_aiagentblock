@@ -56,11 +56,11 @@ $table->define_columns([
     'grade',
     'cvpercent',
     'testpages',
-    'totalsteps',
-    'stepsperpage',
+    'totalinteractions',
+    'interactionsperpage',
     'suspicionscore',
     'location',
-    'detectionmethod'
+    'detectionreasons'
 ]);
 
 $table->define_headers([
@@ -73,11 +73,11 @@ $table->define_headers([
     get_string('col_grade', 'local_aiagentblock'),
     get_string('col_cvpercent', 'local_aiagentblock'),
     get_string('col_testpages', 'local_aiagentblock'),
-    get_string('col_totalsteps', 'local_aiagentblock'),
-    get_string('col_stepsperpage', 'local_aiagentblock'),
+    get_string('col_totalinteractions', 'local_aiagentblock'),
+    get_string('col_interactionsperpage', 'local_aiagentblock'),
     get_string('col_suspicionscore', 'local_aiagentblock'),
     get_string('col_location', 'local_aiagentblock'),
-    get_string('col_detectionmethod', 'local_aiagentblock')
+    get_string('col_detectionreasons', 'local_aiagentblock')
 ]);
 
 $table->define_baseurl($PAGE->url);
@@ -119,6 +119,35 @@ if ($sort) {
 
 $records = $DB->get_records_sql($sql, $params);
 
+/**
+ * Helper function to parse detection reasons from browser field
+ */
+function parse_detection_reasons($browser_text) {
+    if (empty($browser_text)) {
+        return [];
+    }
+    
+    // Extract reasons from "Reasons: x, y, z" pattern
+    if (preg_match('/Reasons:\s*(.+?)(\||$)/', $browser_text, $matches)) {
+        $reasons_str = trim($matches[1]);
+        $reasons = array_map('trim', explode(',', $reasons_str));
+        
+        // Clean up and humanize reason names
+        $cleaned_reasons = [];
+        foreach ($reasons as $reason) {
+            // Remove weight numbers (e.g., "completed_under_3min_70" -> "completed_under_3min")
+            $reason = preg_replace('/_\d+$/', '', $reason);
+            // Convert underscores to spaces and capitalize
+            $reason = ucwords(str_replace('_', ' ', $reason));
+            $cleaned_reasons[] = $reason;
+        }
+        
+        return array_unique($cleaned_reasons);
+    }
+    
+    return [];
+}
+
 if (empty($records)) {
     if (!$table->is_downloading()) {
         echo $OUTPUT->notification(
@@ -128,6 +157,21 @@ if (empty($records)) {
     }
 } else {
     if (!$table->is_downloading()) {
+        // Add metric explanations box
+        echo html_writer::start_div('alert alert-info');
+        echo html_writer::tag('h5', get_string('metric_explanations_title', 'local_aiagentblock'));
+        echo html_writer::start_tag('ul');
+        echo html_writer::tag('li', html_writer::tag('strong', get_string('col_cvpercent', 'local_aiagentblock') . ': ') . 
+            get_string('metric_cv_explain', 'local_aiagentblock'));
+        echo html_writer::tag('li', html_writer::tag('strong', get_string('col_suspicionscore', 'local_aiagentblock') . ': ') . 
+            get_string('metric_suspicion_explain', 'local_aiagentblock'));
+        echo html_writer::tag('li', html_writer::tag('strong', get_string('col_testpages', 'local_aiagentblock') . ': ') . 
+            get_string('metric_testpages_explain', 'local_aiagentblock'));
+        echo html_writer::tag('li', html_writer::tag('strong', get_string('col_totalinteractions', 'local_aiagentblock') . ': ') . 
+            get_string('metric_interactions_explain', 'local_aiagentblock'));
+        echo html_writer::end_tag('ul');
+        echo html_writer::end_div();
+        
         echo $OUTPUT->notification(
             get_string('detections_found', 'local_aiagentblock', count($records)),
             \core\output\notification::NOTIFY_WARNING
@@ -185,14 +229,16 @@ if (empty($records)) {
         
         // Grade
         if ($record->grade_percent !== null) {
-            $grade_display = round($record->grade_percent, 1) . '%';
+            $grade_display = number_format($record->grade_percent, 0) . '%';
             if (!$table->is_downloading()) {
                 if ($record->grade_percent >= 90) {
                     $grade_class = 'badge badge-success';
                 } else if ($record->grade_percent >= 70) {
                     $grade_class = 'badge badge-info';
-                } else {
+                } else if ($record->grade_percent >= 50) {
                     $grade_class = 'badge badge-warning';
+                } else {
+                    $grade_class = 'badge badge-danger';
                 }
                 $grade_display = html_writer::tag('span', $grade_display, ['class' => $grade_class]);
             }
@@ -271,8 +317,9 @@ if (empty($records)) {
             $stepsperpage_display = 'N/A';
         }
         
-        // Suspicion Score with color coding
+        // Suspicion Score with color coding - display as percentage
         $suspicion_score = $record->suspicion_score ?? 0;
+        $suspicion_percent = min($suspicion_score, 100); // Cap at 100% for display
         
         if (!$table->is_downloading()) {
             $score_class = '';
@@ -290,12 +337,29 @@ if (empty($records)) {
                 $score_class = 'badge badge-secondary';
                 $confidence_text = 'Low';
             }
-            $suspicion_display = html_writer::tag('span', $suspicion_score, ['class' => $score_class]) .
+            $suspicion_display = html_writer::tag('span', $suspicion_percent . '%', ['class' => $score_class]) .
                                 html_writer::tag('div', $confidence_text, ['class' => 'small text-muted']);
         } else {
-            $suspicion_display = $suspicion_score . ' (' . ($suspicion_score >= 90 ? 'Critical' : 
+            $suspicion_display = $suspicion_percent . '% (' . ($suspicion_score >= 90 ? 'Critical' : 
                                 ($suspicion_score >= 70 ? 'High' : 
                                 ($suspicion_score >= 50 ? 'Moderate' : 'Low'))) . ')';
+        }
+        
+        // Detection Reasons - parse from browser field
+        $detection_reasons = self::parse_detection_reasons($record->browser);
+        if (!$table->is_downloading() && !empty($detection_reasons)) {
+            $reasons_html = '';
+            foreach ($detection_reasons as $reason) {
+                $reasons_html .= html_writer::tag('span', $reason, [
+                    'class' => 'badge badge-warning mr-1 mb-1',
+                    'style' => 'display: inline-block;'
+                ]);
+            }
+            $detectionreasons = $reasons_html;
+        } else if (!empty($detection_reasons)) {
+            $detectionreasons = implode(', ', $detection_reasons);
+        } else {
+            $detectionreasons = get_string('detection_method_timing', 'local_aiagentblock');
         }
         
         // Location (course page or activity)
@@ -351,7 +415,7 @@ if (empty($records)) {
             $stepsperpage_display,
             $suspicion_display,
             $location,
-            $detectionmethod
+            $detectionreasons
         ]);
     }
 }
