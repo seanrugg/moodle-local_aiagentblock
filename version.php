@@ -29,4 +29,4 @@ $plugin->version = 2025120800;  // Updated: Enhanced behavioral analysis and dat
 $plugin->requires = 2022041900; // Moodle 4.0 minimum (compatible through 5.1+)
 $plugin->supported = [400, 501]; // Moodle 4.0 to 5.1 (and higher)
 $plugin->maturity = MATURITY_BETA;
-$plugin->release = 'v1.4.1-beta';
+$plugin->release = 'v1.4.2-beta';
