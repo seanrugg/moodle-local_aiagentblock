@@ -460,9 +460,9 @@ if (empty($records)) {
             ]);
             $actions = html_writer::link(
                 $deleteurl,
-                html_writer::tag('i', '', ['class' => 'fa fa-trash']),
+                html_writer::tag('i', '', ['class' => 'fa fa-trash', 'aria-hidden' => 'true']),
                 [
-                    'class' => 'btn btn-sm btn-danger',
+                    'class' => 'btn btn-sm btn-link text-danger',
                     'title' => get_string('delete'),
                     'aria-label' => get_string('delete')
                 ]
