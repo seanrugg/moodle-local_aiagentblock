@@ -18,7 +18,7 @@
  * AI Agent Detection Report for a course
  *
  * @package    local_aiagentblock
- * @copyright  2024
+ * @copyright  2025
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
