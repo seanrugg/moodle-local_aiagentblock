@@ -51,6 +51,10 @@ $string['settings_header'] = 'AI Agent Detection Settings';
 $string['settings_header_desc'] = 'Configure how AI agents are detected and blocked on your Moodle site.';
 $string['enabled'] = 'Enable AI Agent Detection';
 
+// Analysis Mode
+$string['analysis_mode'] = 'Data Collection Mode (Behavioral Analysis)';
+$string['analysis_mode_desc'] = 'When enabled, ALL quiz attempts will be logged regardless of suspicion score. This mode is designed for collecting behavioral data to analyze patterns and refine detection thresholds. Students will NEVER be blocked in this mode. <strong>Important:</strong> Disable this once you have collected sufficient data and are ready to enable blocking.';
+
 // Blocking page
 $string['access_denied'] = 'Access Denied';
 $string['ai_agent_detected'] = 'AI agent activity has been detected. This course or activity does not permit AI agents to complete work on behalf of students.';
@@ -245,6 +249,4 @@ $string['are_you_sure'] = 'This action cannot be undone.';
 $string['record_deleted'] = 'Detection record deleted successfully.';
 $string['record_not_found'] = 'Detection record not found or does not belong to this course.';
 
-// Analysis Mode
-$string['analysis_mode'] = 'Data Collection Mode (Behavioral Analysis)';
-$string['analysis_mode_desc'] = 'When enabled, ALL quiz attempts will be logged regardless of suspicion score. This mode is designed for collecting behavioral data to analyze patterns and refine detection thresholds. Students will NEVER be blocked in this mode. <strong>Important:</strong> Disable this once you have collected sufficient data and are ready to enable blocking.';
+
