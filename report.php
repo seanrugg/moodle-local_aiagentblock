@@ -462,7 +462,7 @@ if (empty($records)) {
                 $deleteurl,
                 html_writer::tag('i', '', ['class' => 'fa fa-trash', 'aria-hidden' => 'true']),
                 [
-                    'class' => 'btn btn-sm btn-link',
+                    'class' => 'btn btn-link',
                     'title' => get_string('delete'),
                     'aria-label' => get_string('delete')
                 ]
