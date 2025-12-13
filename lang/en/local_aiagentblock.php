@@ -244,3 +244,7 @@ $string['confirm_delete_message'] = 'Are you sure you want to delete the detecti
 $string['are_you_sure'] = 'This action cannot be undone.';
 $string['record_deleted'] = 'Detection record deleted successfully.';
 $string['record_not_found'] = 'Detection record not found or does not belong to this course.';
+
+// Analysis Mode
+$string['analysis_mode'] = 'Data Collection Mode (Behavioral Analysis)';
+$string['analysis_mode_desc'] = 'When enabled, ALL quiz attempts will be logged regardless of suspicion score. This mode is designed for collecting behavioral data to analyze patterns and refine detection thresholds. Students will NEVER be blocked in this mode. <strong>Important:</strong> Disable this once you have collected sufficient data and are ready to enable blocking.';
