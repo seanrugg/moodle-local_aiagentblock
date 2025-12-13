@@ -199,10 +199,14 @@ if ($hassiteconfig) {
         'local_aiagentblock/delete_records',
         get_string('delete_detection_records', 'local_aiagentblock'),
         get_string('delete_records_warning', 'local_aiagentblock') . '<br><br>' .
-        html_writer::link(
-            new moodle_url('/local/aiagentblock/delete_records.php'),
-            get_string('delete_all_records_button', 'local_aiagentblock'),
-            ['class' => 'btn btn-danger']
+        html_writer::div(
+            html_writer::link(
+                new moodle_url('/local/aiagentblock/delete_records.php'),
+                get_string('delete_all_records_button', 'local_aiagentblock'),
+                ['class' => 'btn btn-secondary']
+            ),
+            '',
+            ['style' => 'margin-bottom: 2rem;']
         )
     ));
 }
