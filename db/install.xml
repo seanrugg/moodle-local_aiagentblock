@@ -16,7 +16,7 @@
         <FIELD NAME="protection_level" TYPE="char" LENGTH="20" NOTNULL="true" SEQUENCE="false" COMMENT="course or activity level protection"/>
         <FIELD NAME="detection_method" TYPE="char" LENGTH="50" NOTNULL="true" SEQUENCE="false" COMMENT="Method used: user_agent, headers, client_side, timing_analysis"/>
         <FIELD NAME="user_agent" TYPE="text" NOTNULL="true" SEQUENCE="false" COMMENT="Full user agent string"/>
-        <FIELD NAME="browser" TYPE="char" LENGTH="255" NOTNULL="false" SEQUENCE="false" COMMENT="Browser name and version"/>
+        <FIELD NAME="browser" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="Browser name, version, and comprehensive metrics"/>
         <FIELD NAME="ip_address" TYPE="char" LENGTH="45" NOTNULL="true" SEQUENCE="false" COMMENT="IP address (supports IPv6)"/>
         <FIELD NAME="suspicion_score" TYPE="int" LENGTH="3" NOTNULL="false" DEFAULT="0" SEQUENCE="false" COMMENT="Suspicion score (0-100+)"/>
         <FIELD NAME="duration_seconds" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Quiz duration in seconds"/>
