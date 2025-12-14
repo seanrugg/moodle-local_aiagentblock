@@ -102,5 +102,16 @@ function xmldb_local_aiagentblock_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2025120800, 'local', 'aiagentblock');
     }
 
+    // CRITICAL FIX: Resize browser column from VARCHAR(255) to TEXT
+    if ($oldversion < 2025120801) {
+        $table = new xmldb_table('local_aiagentblock_log');
+        $field = new xmldb_field('browser', XMLDB_TYPE_TEXT, null, null, null, null, null, 'user_agent');
+        
+        // Change field type to TEXT
+        $dbman->change_field_type($table, $field);
+
+        upgrade_plugin_savepoint(true, 2025120801, 'local', 'aiagentblock');
+    }
+
     return true;
 }
