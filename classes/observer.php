@@ -233,7 +233,7 @@ class observer {
     }
     
     /**
-     * FIX 1: Get actual grade percentage for attempt
+     * FIX 1: Get actual grade percentage for THIS SPECIFIC ATTEMPT
      * 
      * @param stdClass $attempt
      * @param stdClass $quiz
@@ -242,25 +242,33 @@ class observer {
     private static function get_attempt_grade($attempt, $quiz) {
         global $DB;
         
-        // Try to get final grade from quiz_grades table
+        // CRITICAL: We want THIS attempt's grade, not the user's best grade
+        // The quiz_grades table stores the BEST grade across all attempts
+        // We need to calculate from THIS attempt's sumgrades
+        
+        // Primary method: Calculate directly from this attempt
+        if ($quiz->sumgrades > 0 && $attempt->sumgrades !== null) {
+            // This attempt's raw score / max possible score * 100
+            return round(($attempt->sumgrades / $quiz->sumgrades) * 100, 2);
+        }
+        
+        // Fallback: Try to get grade from quiz_grades if attempt is best
         $final_grade = $DB->get_record('quiz_grades', [
             'quiz' => $quiz->id,
             'userid' => $attempt->userid
         ]);
         
         if ($final_grade && $quiz->grade > 0) {
-            // This is the actual final grade
-            return round(($final_grade->grade / $quiz->grade) * 100, 2);
+            // Only use this if it matches the current attempt's grade
+            $calculated_grade = ($attempt->sumgrades / $quiz->sumgrades) * $quiz->grade;
+            if (abs($calculated_grade - $final_grade->grade) < 0.01) {
+                return round(($final_grade->grade / $quiz->grade) * 100, 2);
+            }
         }
         
-        // Fallback: Calculate from attempt sumgrades
-        if ($quiz->sumgrades > 0 && $attempt->sumgrades !== null) {
-            return round(($attempt->sumgrades / $quiz->sumgrades) * 100, 2);
-        }
-        
-        // Last resort: Check if attempt is still in progress
+        // Last resort: Check if we have any grade data
         if ($attempt->state == 'finished' && $attempt->sumgrades !== null) {
-            // Use raw sumgrades if no grading scale defined
+            // Assume sumgrades is already a percentage if sumgrades not available
             return round($attempt->sumgrades, 2);
         }
         
@@ -315,37 +323,75 @@ class observer {
     private static function get_real_interactions($uniqueid) {
         global $DB;
         
-        // Count actual answer submissions (not just state changes)
+        // Method 1: Count steps that represent actual user actions
+        // We'll count ANY step that changes the answer, not just graded ones
         $sql = "SELECT qa.id, qa.slot,
-                       COUNT(DISTINCT qas.id) as answer_count
+                       COUNT(qas.id) as step_count
                 FROM {question_attempts} qa
                 JOIN {question_attempt_steps} qas ON qas.questionattemptid = qa.id
                 WHERE qa.questionusageid = :uniqueid
-                AND qas.state IN ('complete', 'gradedright', 'gradedwrong', 'gradedpartial', 'needsgrading')
-                AND qas.fraction IS NOT NULL
+                AND qas.sequencenumber > 0
+                AND qas.state != 'todo'
+                AND qas.state != 'gaveup'
                 GROUP BY qa.id, qa.slot";
         
         $results = $DB->get_records_sql($sql, ['uniqueid' => $uniqueid]);
         
         $total_interactions = 0;
-        $questions_with_interactions = 0;
+        $questions_answered = 0;
         
-        foreach ($results as $result) {
-            $total_interactions += $result->answer_count;
-            if ($result->answer_count > 0) {
-                $questions_with_interactions++;
+        if (!empty($results)) {
+            foreach ($results as $result) {
+                $total_interactions += $result->step_count;
+                if ($result->step_count > 0) {
+                    $questions_answered++;
+                }
             }
+        }
+        
+        // If Method 1 gives us 0, try a more lenient approach
+        if ($total_interactions == 0) {
+            // Method 2: Just count all steps except the initial 'todo' state
+            $sql2 = "SELECT COUNT(qas.id) as total_steps
+                     FROM {question_attempts} qa
+                     JOIN {question_attempt_steps} qas ON qas.questionattemptid = qa.id
+                     WHERE qa.questionusageid = :uniqueid
+                     AND qas.sequencenumber > 0";
+            
+            $result2 = $DB->get_record_sql($sql2, ['uniqueid' => $uniqueid]);
+            $total_interactions = $result2 ? $result2->total_steps : 0;
+            
+            // Count questions that have at least one step
+            $questions_answered = $DB->count_records_sql(
+                "SELECT COUNT(DISTINCT qa.id)
+                 FROM {question_attempts} qa
+                 JOIN {question_attempt_steps} qas ON qas.questionattemptid = qa.id
+                 WHERE qa.questionusageid = :uniqueid
+                 AND qas.sequencenumber > 0",
+                ['uniqueid' => $uniqueid]
+            );
         }
         
         // Get total number of questions
         $total_questions = $DB->count_records('question_attempts', ['questionusageid' => $uniqueid]);
+        
+        // Ensure we have at least 1 interaction per answered question as minimum
+        if ($total_interactions == 0 && $questions_answered > 0) {
+            $total_interactions = $questions_answered;
+        }
+        
+        // Fallback: If still 0, use number of questions as baseline
+        if ($total_interactions == 0 && $total_questions > 0) {
+            $total_interactions = $total_questions;
+            $questions_answered = $total_questions;
+        }
         
         $interactions_per_question = $total_questions > 0 ? 
             round($total_interactions / $total_questions, 2) : 0;
         
         return [
             'total_steps' => $total_interactions,
-            'questions_answered' => $questions_with_interactions,
+            'questions_answered' => $questions_answered,
             'total_questions' => $total_questions,
             'interactions_per_question' => $interactions_per_question,
             'steps_per_page' => $interactions_per_question // For backward compatibility
