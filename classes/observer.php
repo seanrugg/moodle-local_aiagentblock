@@ -15,7 +15,7 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Event observers for AI Agent Blocker plugin - BEHAVIORAL ANALYSIS MODE
+ * Event observers for AI Agent Blocker plugin - FIXED METRICS
  *
  * @package    local_aiagentblock
  * @copyright  2025
@@ -28,18 +28,11 @@ defined('MOODLE_INTERNAL') || die();
 
 /**
  * Event observer class for detecting AI agent activity
- * 
- * BEHAVIORAL ANALYSIS MODE:
- * - Logs ALL quiz attempts (not just suspicious ones)
- * - Comprehensive data collection for pattern analysis
- * - Calculates detailed behavioral metrics
- * - Enables statistical analysis and threshold refinement
  */
 class observer {
     
     /**
      * Observer for quiz attempt submitted event
-     * NOW LOGS ALL ATTEMPTS FOR BEHAVIORAL ANALYSIS
      *
      * @param \mod_quiz\event\attempt_submitted $event
      */
@@ -48,10 +41,10 @@ class observer {
         
         // Check if timing detection is enabled
         if (!get_config('local_aiagentblock', 'detect_timing')) {
-            return; // Skip if timing detection is disabled
+            return;
         }
         
-        // Get the attempt data (AFTER submission, so grades are calculated)
+        // Get the attempt data
         $attempt = $DB->get_record('quiz_attempts', ['id' => $event->objectid], '*', MUST_EXIST);
         
         // Calculate completion time in seconds
@@ -61,40 +54,32 @@ class observer {
         // Get quiz info
         $quiz = $DB->get_record('quiz', ['id' => $attempt->quiz], '*', MUST_EXIST);
         
-        // Get course module ID for the quiz
+        // Get course module ID
         $cm = get_coursemodule_from_instance('quiz', $quiz->id, $event->courseid);
         if (!$cm) {
-            return; // Can't proceed without course module
+            return;
         }
         
-        // Get the FINAL grade for this attempt (from quiz_grades table)
-        $final_grade = $DB->get_record('quiz_grades', [
-            'quiz' => $quiz->id,
-            'userid' => $attempt->userid
-        ]);
+        // === FIX 1: GET ACTUAL GRADE ===
+        $grade_percent = self::get_attempt_grade($attempt, $quiz);
         
-        // Calculate grade percentage
-        $grade_percent = 0;
-        if ($final_grade && $quiz->grade > 0) {
-            $grade_percent = ($final_grade->grade / $quiz->grade) * 100;
-        } else if ($quiz->sumgrades > 0 && $attempt->sumgrades > 0) {
-            // Fallback: calculate from attempt grades
-            $grade_percent = ($attempt->sumgrades / $quiz->sumgrades) * 100;
-        }
-        
-        // Count questions in quiz
+        // === FIX 2: COUNT ACTUAL QUESTIONS (NOT SLOTS) ===
         $questioncount = $DB->count_records('quiz_slots', ['quizid' => $quiz->id]);
         
-        // === COMPREHENSIVE BEHAVIORAL ANALYSIS ===
+        // === FIX 3: CALCULATE ACTUAL PAGES ===
+        $page_metrics = self::calculate_actual_pages($quiz, $attempt);
+        
+        // === FIX 4: COUNT REAL USER INTERACTIONS ===
+        $interaction_metrics = self::get_real_interactions($attempt->uniqueid);
+        
+        // === BEHAVIORAL ANALYSIS ===
         
         // 1. Answer Change Analysis
         $answer_changes = self::count_answer_changes($attempt->uniqueid);
         
-        // 2. Timing Consistency Analysis
+        // 2. Timing Consistency Analysis (FIXED - only analyzes pages ≥10 sec)
         $timing_result = self::analyze_timing_consistency($attempt->uniqueid);
         $cv_percent = $timing_result ? $timing_result['cv_percent'] : null;
-        $test_pages = $timing_result ? $timing_result['question_pages'] : null;
-        $total_pages = $timing_result ? $timing_result['total_pages'] : null;
         $mean_time = $timing_result ? $timing_result['mean_time'] : null;
         $std_dev = $timing_result ? $timing_result['std_dev'] : null;
         
@@ -102,15 +87,9 @@ class observer {
         $answered_sequentially = self::check_sequential_pattern($attempt->uniqueid, $questioncount);
         
         // 4. Navigation Pattern Analysis
-        $instant_navigation_count = self::count_instant_navigation($attempt->uniqueid);
+        $navigation_metrics = self::analyze_navigation_pattern($attempt->uniqueid);
         
-        // 5. Interaction Metrics
-        $interaction_metrics = self::get_interaction_metrics($attempt->uniqueid);
-        
-        // 6. Per-Question Timing Distribution
-        $timing_distribution = self::get_timing_distribution($attempt->uniqueid);
-        
-        // === SUSPICION SCORING (FOR FLAGGING) ===
+        // === SUSPICION SCORING ===
         
         $suspicion_score = 0;
         $reasons = [];
@@ -120,17 +99,14 @@ class observer {
         $seconds_per_question = $questioncount > 0 ? ($duration / $questioncount) : 0;
         
         if ($seconds_per_question < 3) {
-            // Physically impossible
             $suspicion_score += 100;
             $reasons[] = 'impossible_speed_' . round($seconds_per_question, 1) . 's_per_q';
             $behavior_flags[] = 'IMPOSSIBLE_TIME';
         } else if ($seconds_per_question < 10) {
-            // Very fast
             $suspicion_score += 50;
             $reasons[] = 'very_fast_' . round($seconds_per_question, 1) . 's_per_q';
             $behavior_flags[] = 'VERY_FAST';
         } else if ($seconds_per_question < 20) {
-            // Fast
             $suspicion_score += 30;
             $reasons[] = 'fast_' . round($seconds_per_question, 1) . 's_per_q';
             $behavior_flags[] = 'FAST';
@@ -139,20 +115,16 @@ class observer {
         // TIMING CONSISTENCY SCORING
         if ($cv_percent !== null) {
             if ($cv_percent < 5) {
-                // Robotic consistency
                 $suspicion_score += 35;
                 $reasons[] = 'robotic_timing_cv_' . round($cv_percent, 1) . '%';
                 $behavior_flags[] = 'VERY_LOW_VARIANCE';
             } else if ($cv_percent < 10) {
-                // Very consistent
                 $suspicion_score += 20;
                 $reasons[] = 'very_consistent_cv_' . round($cv_percent, 1) . '%';
                 $behavior_flags[] = 'LOW_VARIANCE';
             } else if ($cv_percent >= 10 && $cv_percent < 30) {
-                // Normal human variance
                 $behavior_flags[] = 'MODERATE_VARIANCE';
             } else {
-                // High variance
                 $behavior_flags[] = 'HIGH_VARIANCE';
             }
         }
@@ -181,38 +153,34 @@ class observer {
             }
         }
         
-        // LOW SCORE + SPEED (probably guessing, less suspicious)
+        // LOW SCORE + SPEED (probably guessing)
         if ($grade_percent < 50 && $seconds_per_question < 20) {
-            // Reduce suspicion - probably just guessing/rushing
             $suspicion_score = max(0, $suspicion_score - 20);
             $behavior_flags[] = 'LOW_SCORE_FAST';
         }
         
-        // INSTANT NAVIGATION SCORING
-        if ($instant_navigation_count >= 3) {
+        // RAPID PAGE NAVIGATION
+        if ($navigation_metrics['instant_clicks'] >= 3) {
             $suspicion_score += 25;
-            $reasons[] = 'instant_navigation_' . $instant_navigation_count . '_pages';
+            $reasons[] = 'instant_navigation_' . $navigation_metrics['instant_clicks'] . '_pages';
             $behavior_flags[] = 'INSTANT_NAVIGATION';
-        } else if ($instant_navigation_count >= 2) {
-            $suspicion_score += 15;
-            $reasons[] = 'quick_navigation_' . $instant_navigation_count . '_pages';
         }
         
-        // SEQUENTIAL PATTERN (informational, not scored - most students do this)
+        // LOW INTERACTION SCORING
+        if ($interaction_metrics['interactions_per_question'] < 1.5 && $questioncount >= 3) {
+            $suspicion_score += 20;
+            $reasons[] = 'very_low_interaction_' . round($interaction_metrics['interactions_per_question'], 1);
+            $behavior_flags[] = 'VERY_LOW_INTERACTION';
+        }
+        
+        // SEQUENTIAL PATTERN (informational only)
         if ($answered_sequentially) {
             $behavior_flags[] = 'SEQUENTIAL';
         } else {
             $behavior_flags[] = 'NON_SEQUENTIAL';
         }
         
-        // LOW INTERACTION SCORING
-        if ($interaction_metrics['steps_per_page'] < 2.0 && $questioncount >= 3) {
-            $suspicion_score += 20;
-            $reasons[] = 'very_low_interaction_' . round($interaction_metrics['steps_per_page'], 1) . '_steps_per_page';
-            $behavior_flags[] = 'VERY_LOW_INTERACTION';
-        }
-        
-        // === CHECK USER AGENT FOR AI SIGNATURES ===
+        // AI USER AGENT CHECK
         $user_agent = $_SERVER['HTTP_USER_AGENT'] ?? '';
         if (\local_aiagentblock\detector::is_ai_user_agent($user_agent)) {
             $suspicion_score += 50;
@@ -220,12 +188,10 @@ class observer {
             $behavior_flags[] = 'AI_USER_AGENT';
         }
         
-        // === CALCULATE THRESHOLD DESCRIPTION ===
+        // THRESHOLD DESCRIPTION
         $threshold_triggered = self::get_threshold_description($suspicion_score, $seconds_per_question);
         
-        // === LOG ALL ATTEMPTS (NOT JUST SUSPICIOUS ONES) ===
-        // This is the key change for behavioral analysis mode
-        
+        // === LOG THE ATTEMPT ===
         self::log_timing_detection(
             $event->userid,
             $event->courseid,
@@ -242,18 +208,17 @@ class observer {
             $threshold_triggered,
             $attempt->id,
             $cv_percent,
-            $test_pages,
-            $total_pages,
+            $page_metrics['question_pages'],
+            $page_metrics['total_pages'],
             $interaction_metrics,
             $answer_changes,
             $answered_sequentially,
-            $instant_navigation_count,
+            $navigation_metrics['instant_clicks'],
             $mean_time,
-            $std_dev,
-            $timing_distribution
+            $std_dev
         );
         
-        // === OPTIONAL: SEND ADMIN NOTIFICATION FOR HIGH-SUSPICION ONLY ===
+        // SEND ADMIN NOTIFICATION FOR HIGH SUSPICION
         if ($suspicion_score >= 70 && get_config('local_aiagentblock', 'notify_admin')) {
             self::notify_admin_timing_detection(
                 $event->userid, 
@@ -265,6 +230,267 @@ class observer {
                 new \moodle_url('/mod/quiz/review.php', ['attempt' => $attempt->id])
             );
         }
+    }
+    
+    /**
+     * FIX 1: Get actual grade percentage for attempt
+     * 
+     * @param stdClass $attempt
+     * @param stdClass $quiz
+     * @return float Grade percentage (0-100)
+     */
+    private static function get_attempt_grade($attempt, $quiz) {
+        global $DB;
+        
+        // Try to get final grade from quiz_grades table
+        $final_grade = $DB->get_record('quiz_grades', [
+            'quiz' => $quiz->id,
+            'userid' => $attempt->userid
+        ]);
+        
+        if ($final_grade && $quiz->grade > 0) {
+            // This is the actual final grade
+            return round(($final_grade->grade / $quiz->grade) * 100, 2);
+        }
+        
+        // Fallback: Calculate from attempt sumgrades
+        if ($quiz->sumgrades > 0 && $attempt->sumgrades !== null) {
+            return round(($attempt->sumgrades / $quiz->sumgrades) * 100, 2);
+        }
+        
+        // Last resort: Check if attempt is still in progress
+        if ($attempt->state == 'finished' && $attempt->sumgrades !== null) {
+            // Use raw sumgrades if no grading scale defined
+            return round($attempt->sumgrades, 2);
+        }
+        
+        return 0;
+    }
+    
+    /**
+     * FIX 2: Calculate actual number of pages based on quiz layout
+     * 
+     * @param stdClass $quiz
+     * @param stdClass $attempt
+     * @return array ['question_pages' => int, 'total_pages' => int]
+     */
+    private static function calculate_actual_pages($quiz, $attempt) {
+        global $DB;
+        
+        // Get quiz structure from quiz_slots
+        $slots = $DB->get_records('quiz_slots', ['quizid' => $quiz->id], 'slot ASC');
+        
+        if (empty($slots)) {
+            return ['question_pages' => 0, 'total_pages' => 0];
+        }
+        
+        // Count unique pages
+        $pages = [];
+        foreach ($slots as $slot) {
+            if (!in_array($slot->page, $pages)) {
+                $pages[] = $slot->page;
+            }
+        }
+        
+        $question_pages = count($pages);
+        
+        // Total pages includes:
+        // - Question pages
+        // - Review page (always present)
+        // - Summary page (if quiz shows it)
+        $total_pages = $question_pages + 1; // +1 for review page
+        
+        return [
+            'question_pages' => $question_pages,
+            'total_pages' => $total_pages
+        ];
+    }
+    
+    /**
+     * FIX 3: Count real user interactions (actual answers, not system state changes)
+     * 
+     * @param int $uniqueid Question usage ID
+     * @return array Interaction metrics
+     */
+    private static function get_real_interactions($uniqueid) {
+        global $DB;
+        
+        // Count actual answer submissions (not just state changes)
+        $sql = "SELECT qa.id, qa.slot,
+                       COUNT(DISTINCT qas.id) as answer_count
+                FROM {question_attempts} qa
+                JOIN {question_attempt_steps} qas ON qas.questionattemptid = qa.id
+                WHERE qa.questionusageid = :uniqueid
+                AND qas.state IN ('complete', 'gradedright', 'gradedwrong', 'gradedpartial', 'needsgrading')
+                AND qas.fraction IS NOT NULL
+                GROUP BY qa.id, qa.slot";
+        
+        $results = $DB->get_records_sql($sql, ['uniqueid' => $uniqueid]);
+        
+        $total_interactions = 0;
+        $questions_with_interactions = 0;
+        
+        foreach ($results as $result) {
+            $total_interactions += $result->answer_count;
+            if ($result->answer_count > 0) {
+                $questions_with_interactions++;
+            }
+        }
+        
+        // Get total number of questions
+        $total_questions = $DB->count_records('question_attempts', ['questionusageid' => $uniqueid]);
+        
+        $interactions_per_question = $total_questions > 0 ? 
+            round($total_interactions / $total_questions, 2) : 0;
+        
+        return [
+            'total_steps' => $total_interactions,
+            'questions_answered' => $questions_with_interactions,
+            'total_questions' => $total_questions,
+            'interactions_per_question' => $interactions_per_question,
+            'steps_per_page' => $interactions_per_question // For backward compatibility
+        ];
+    }
+    
+    /**
+     * Count how many times student changed their answers
+     */
+    private static function count_answer_changes($uniqueid) {
+        global $DB;
+        
+        $sql = "SELECT qa.id, COUNT(qas.id) as step_count
+                FROM {question_attempts} qa
+                JOIN {question_attempt_steps} qas ON qas.questionattemptid = qa.id
+                WHERE qa.questionusageid = :uniqueid
+                AND qas.state IN ('complete', 'gradedright', 'gradedwrong', 'gradedpartial')
+                AND qas.fraction IS NOT NULL
+                GROUP BY qa.id
+                HAVING COUNT(qas.id) > 1";
+        
+        $results = $DB->get_records_sql($sql, ['uniqueid' => $uniqueid]);
+        
+        return count($results);
+    }
+    
+    /**
+     * Analyze timing consistency across questions
+     * FIXED: Only includes pages ≥10 seconds
+     */
+    private static function analyze_timing_consistency($uniqueid) {
+        global $DB;
+        
+        $sql = "SELECT qa.slot, MIN(qas.timecreated) as start_time, MAX(qas.timecreated) as end_time
+                FROM {question_attempts} qa
+                JOIN {question_attempt_steps} qas ON qas.questionattemptid = qa.id
+                WHERE qa.questionusageid = :uniqueid
+                GROUP BY qa.slot
+                ORDER BY qa.slot";
+        
+        $questions = $DB->get_records_sql($sql, ['uniqueid' => $uniqueid]);
+        
+        if (count($questions) < 3) {
+            return null;
+        }
+        
+        // Only include pages with ≥10 seconds
+        $times = [];
+        foreach ($questions as $q) {
+            $time_spent = $q->end_time - $q->start_time;
+            if ($time_spent >= 10) {
+                $times[] = $time_spent;
+            }
+        }
+        
+        if (count($times) < 3) {
+            return null;
+        }
+        
+        $mean = array_sum($times) / count($times);
+        $squared_diffs = array_map(function($x) use ($mean) {
+            return pow($x - $mean, 2);
+        }, $times);
+        $std_dev = sqrt(array_sum($squared_diffs) / count($times));
+        
+        $cv_percent = ($std_dev / $mean) * 100;
+        
+        return [
+            'cv_percent' => $cv_percent,
+            'mean_time' => $mean,
+            'std_dev' => $std_dev
+        ];
+    }
+    
+    /**
+     * Check if questions were answered in sequential order
+     */
+    private static function check_sequential_pattern($uniqueid, $total_questions) {
+        global $DB;
+        
+        if ($total_questions < 4) {
+            return false;
+        }
+        
+        $sql = "SELECT qa.slot, MIN(qas.timecreated) as first_answer
+                FROM {question_attempts} qa
+                JOIN {question_attempt_steps} qas ON qas.questionattemptid = qa.id
+                WHERE qa.questionusageid = :uniqueid
+                AND qas.state != 'todo'
+                GROUP BY qa.slot
+                ORDER BY first_answer";
+        
+        $order = $DB->get_records_sql($sql, ['uniqueid' => $uniqueid]);
+        
+        $expected_slot = 1;
+        foreach ($order as $q) {
+            if ($q->slot != $expected_slot) {
+                return false;
+            }
+            $expected_slot++;
+        }
+        
+        return true;
+    }
+    
+    /**
+     * FIX 4: Analyze navigation patterns
+     * 
+     * @param int $uniqueid
+     * @return array Navigation metrics
+     */
+    private static function analyze_navigation_pattern($uniqueid) {
+        global $DB;
+        
+        $sql = "SELECT qa.slot, MIN(qas.timecreated) as start_time, MAX(qas.timecreated) as end_time
+                FROM {question_attempts} qa
+                JOIN {question_attempt_steps} qas ON qas.questionattemptid = qa.id
+                WHERE qa.questionusageid = :uniqueid
+                GROUP BY qa.slot
+                ORDER BY qa.slot";
+        
+        $pages = $DB->get_records_sql($sql, ['uniqueid' => $uniqueid]);
+        
+        $instant_clicks = 0;
+        $very_fast_pages = 0;
+        $normal_pages = 0;
+        
+        foreach ($pages as $page) {
+            $time = $page->end_time - $page->start_time;
+            
+            if ($time < 2) {
+                $instant_clicks++;
+            } else if ($time < 5) {
+                $very_fast_pages++;
+            } else {
+                $normal_pages++;
+            }
+        }
+        
+        return [
+            'instant_clicks' => $instant_clicks,        // < 2 seconds
+            'very_fast_pages' => $very_fast_pages,      // 2-5 seconds
+            'normal_pages' => $normal_pages,            // > 5 seconds
+            'total_pages' => count($pages)
+        ];
     }
     
     /**
@@ -286,43 +512,37 @@ class observer {
     
     /**
      * Log timing-based detection to database
-     * NOW LOGS ALL ATTEMPTS WITH COMPREHENSIVE METRICS
      */
     private static function log_timing_detection(
         $userid, $courseid, $contextid, $cmid, $quizname, 
         $score, $reasons, $behavior_flags, $duration, $minutes, 
         $questioncount, $grade_percent, $threshold, $attemptid,
-        $cv_percent, $test_pages, $total_pages, $interaction_metrics,
-        $answer_changes, $answered_sequentially, $instant_navigation_count,
-        $mean_time, $std_dev, $timing_distribution
+        $cv_percent, $question_pages, $total_pages, $interaction_metrics,
+        $answer_changes, $answered_sequentially, $instant_clicks,
+        $mean_time, $std_dev
     ) {
         global $DB;
         
-        // Build page URL to the quiz attempt review
-        $pageurl = new \moodle_url('/mod/quiz/review.php', [
-            'attempt' => $attemptid
-        ]);
-        
-        // Get user agent
+        $pageurl = new \moodle_url('/mod/quiz/review.php', ['attempt' => $attemptid]);
         $user_agent = $_SERVER['HTTP_USER_AGENT'] ?? 'Unknown';
         
-        // Create comprehensive browser field for backward compatibility
+        // Build comprehensive browser field
         $browser_info = sprintf(
-            'Time: %.1f min (%d sec) | Questions: %d | Pages: %d/%d | Interactions: %d (%.1f/pg) | CV%%: %s | Mean: %ss | StdDev: %ss | Grade: %.1f%% | Changes: %d | Sequential: %s | InstantNav: %d | %s | Reasons: %s',
+            'Time: %.1f min (%d sec) | Questions: %d | Pages: %d/%d | Interactions: %d (%.1f/q) | CV%%: %s | Mean: %ss | StdDev: %ss | Grade: %.1f%% | Changes: %d | Sequential: %s | InstantNav: %d | %s | Reasons: %s',
             $minutes,
             $duration,
             $questioncount,
-            $test_pages ?? 0,
-            $total_pages ?? 0,
+            $question_pages,
+            $total_pages,
             $interaction_metrics['total_steps'],
-            $interaction_metrics['steps_per_page'],
+            $interaction_metrics['interactions_per_question'],
             $cv_percent !== null ? round($cv_percent, 1) . '%' : 'N/A',
             $mean_time !== null ? round($mean_time) : 'N/A',
             $std_dev !== null ? round($std_dev) : 'N/A',
             $grade_percent,
             $answer_changes,
             $answered_sequentially ? 'Yes' : 'No',
-            $instant_navigation_count,
+            $instant_clicks,
             $threshold,
             implode(', ', $reasons)
         );
@@ -343,12 +563,12 @@ class observer {
         // Store metrics in dedicated columns
         $record->duration_seconds = $duration;
         $record->question_count = $questioncount;
-        $record->grade_percent = round($grade_percent, 2);
+        $record->grade_percent = $grade_percent;
         $record->cv_percent = $cv_percent !== null ? round($cv_percent, 2) : null;
-        $record->test_pages = $test_pages;
+        $record->test_pages = $question_pages;
         $record->total_pages = $total_pages;
         $record->total_steps = $interaction_metrics['total_steps'];
-        $record->steps_per_page = round($interaction_metrics['steps_per_page'], 2);
+        $record->steps_per_page = round($interaction_metrics['interactions_per_question'], 2);
         
         $record->timecreated = time();
         
@@ -356,235 +576,7 @@ class observer {
     }
     
     /**
-     * Count how many times student changed their answers
-     */
-    private static function count_answer_changes($uniqueid) {
-        global $DB;
-        
-        $sql = "SELECT qa.id, COUNT(qas.id) as step_count
-                FROM {question_attempts} qa
-                JOIN {question_attempt_steps} qas ON qas.questionattemptid = qa.id
-                WHERE qa.questionusageid = :uniqueid
-                AND qas.state != 'todo'
-                AND qas.state != 'complete'
-                GROUP BY qa.id
-                HAVING COUNT(qas.id) > 1";
-        
-        $results = $DB->get_records_sql($sql, ['uniqueid' => $uniqueid]);
-        
-        return count($results);
-    }
-    
-    /**
-     * Analyze timing consistency across questions
-     * FIXED: Only includes pages ≥10 seconds (excludes review/submit pages)
-     */
-    private static function analyze_timing_consistency($uniqueid) {
-        global $DB;
-        
-        $sql = "SELECT qa.slot, MIN(qas.timecreated) as start_time, MAX(qas.timecreated) as end_time
-                FROM {question_attempts} qa
-                JOIN {question_attempt_steps} qas ON qas.questionattemptid = qa.id
-                WHERE qa.questionusageid = :uniqueid
-                GROUP BY qa.slot
-                ORDER BY qa.slot";
-        
-        $questions = $DB->get_records_sql($sql, ['uniqueid' => $uniqueid]);
-        
-        $total_pages = count($questions);
-        
-        if ($total_pages < 3) {
-            return null;
-        }
-        
-        // Only include pages with ≥10 seconds (actual question pages)
-        $times = [];
-        foreach ($questions as $q) {
-            $time_spent = $q->end_time - $q->start_time;
-            if ($time_spent >= 10) {
-                $times[] = $time_spent;
-            }
-        }
-        
-        $question_pages = count($times);
-        
-        if ($question_pages < 3) {
-            return null;
-        }
-        
-        $mean = array_sum($times) / count($times);
-        $squared_diffs = array_map(function($x) use ($mean) {
-            return pow($x - $mean, 2);
-        }, $times);
-        $std_dev = sqrt(array_sum($squared_diffs) / count($times));
-        
-        $cv_percent = ($std_dev / $mean) * 100;
-        
-        return [
-            'cv_percent' => $cv_percent,
-            'question_pages' => $question_pages,
-            'total_pages' => $total_pages,
-            'mean_time' => $mean,
-            'std_dev' => $std_dev,
-            'times' => $times
-        ];
-    }
-    
-    /**
-     * Check if questions were answered in perfect sequential order
-     */
-    private static function check_sequential_pattern($uniqueid, $total_questions) {
-        global $DB;
-        
-        if ($total_questions < 4) {
-            return false;
-        }
-        
-        $sql = "SELECT qa.slot, MIN(qas.timecreated) as first_answer
-                FROM {question_attempts} qa
-                JOIN {question_attempt_steps} qas ON qas.questionattemptid = qa.id
-                WHERE qa.questionusageid = :uniqueid
-                AND qas.state != 'todo'
-                GROUP BY qa.slot
-                ORDER BY first_answer";
-        
-        $order = $DB->get_records_sql($sql, ['uniqueid' => $uniqueid]);
-        
-        // Check if slots are in perfect sequential order
-        $expected_slot = 1;
-        foreach ($order as $q) {
-            if ($q->slot != $expected_slot) {
-                return false;
-            }
-            $expected_slot++;
-        }
-        
-        return true;
-    }
-    
-    /**
-     * Count instant navigation (pages < 2 seconds)
-     * Returns count instead of score for better analysis
-     */
-    private static function count_instant_navigation($uniqueid) {
-        global $DB;
-        
-        $sql = "SELECT qa.slot, MIN(qas.timecreated) as start_time, MAX(qas.timecreated) as end_time
-                FROM {question_attempts} qa
-                JOIN {question_attempt_steps} qas ON qas.questionattemptid = qa.id
-                WHERE qa.questionusageid = :uniqueid
-                GROUP BY qa.slot
-                ORDER BY qa.slot";
-        
-        $pages = $DB->get_records_sql($sql, ['uniqueid' => $uniqueid]);
-        
-        $instant_clicks = 0;
-        foreach ($pages as $page) {
-            $time = $page->end_time - $page->start_time;
-            if ($time < 2) {
-                $instant_clicks++;
-            }
-        }
-        
-        return $instant_clicks;
-    }
-    
-    /**
-     * Get interaction metrics (total steps, steps per page)
-     */
-    private static function get_interaction_metrics($uniqueid) {
-        global $DB;
-        
-        // Count total interaction steps
-        $sql = "SELECT COUNT(qas.id) as total_steps
-                FROM {question_attempts} qa
-                JOIN {question_attempt_steps} qas ON qas.questionattemptid = qa.id
-                WHERE qa.questionusageid = :uniqueid";
-        
-        $result = $DB->get_record_sql($sql, ['uniqueid' => $uniqueid]);
-        $total_steps = $result ? $result->total_steps : 0;
-        
-        // Count total pages
-        $sql_pages = "SELECT COUNT(DISTINCT qa.slot) as total_pages
-                      FROM {question_attempts} qa
-                      WHERE qa.questionusageid = :uniqueid";
-        
-        $result_pages = $DB->get_record_sql($sql_pages, ['uniqueid' => $uniqueid]);
-        $total_pages = $result_pages ? $result_pages->total_pages : 1;
-        
-        $steps_per_page = $total_pages > 0 ? ($total_steps / $total_pages) : 0;
-        
-        return [
-            'total_steps' => $total_steps,
-            'steps_per_page' => round($steps_per_page, 1),
-            'total_pages' => $total_pages
-        ];
-    }
-    
-    /**
-     * Get detailed timing distribution for statistical analysis
-     * Returns array of times spent on each question page
-     */
-    private static function get_timing_distribution($uniqueid) {
-        global $DB;
-        
-        $sql = "SELECT qa.slot, MIN(qas.timecreated) as start_time, MAX(qas.timecreated) as end_time
-                FROM {question_attempts} qa
-                JOIN {question_attempt_steps} qas ON qas.questionattemptid = qa.id
-                WHERE qa.questionusageid = :uniqueid
-                GROUP BY qa.slot
-                ORDER BY qa.slot";
-        
-        $questions = $DB->get_records_sql($sql, ['uniqueid' => $uniqueid]);
-        
-        $distribution = [
-            'min' => null,
-            'max' => null,
-            'median' => null,
-            'q1' => null,
-            'q3' => null,
-            'all_times' => []
-        ];
-        
-        if (empty($questions)) {
-            return $distribution;
-        }
-        
-        $times = [];
-        foreach ($questions as $q) {
-            $time = $q->end_time - $q->start_time;
-            $times[] = $time;
-        }
-        
-        sort($times);
-        
-        $distribution['all_times'] = $times;
-        $distribution['min'] = min($times);
-        $distribution['max'] = max($times);
-        
-        $count = count($times);
-        if ($count > 0) {
-            // Calculate median
-            $mid = floor($count / 2);
-            if ($count % 2 == 0) {
-                $distribution['median'] = ($times[$mid - 1] + $times[$mid]) / 2;
-            } else {
-                $distribution['median'] = $times[$mid];
-            }
-            
-            // Calculate Q1 and Q3
-            $q1_pos = floor($count / 4);
-            $q3_pos = floor(3 * $count / 4);
-            $distribution['q1'] = $times[$q1_pos];
-            $distribution['q3'] = $times[$q3_pos];
-        }
-        
-        return $distribution;
-    }
-    
-    /**
-     * Send admin notification for timing-based detection
-     * Only called for high-suspicion attempts (≥70)
+     * Send admin notification for high-suspicion attempts
      */
     private static function notify_admin_timing_detection($userid, $courseid, $quizname, 
                                                           $minutes, $grade, $threshold, $pageurl) {
