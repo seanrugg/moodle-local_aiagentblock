@@ -15,7 +15,7 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Event observers for AI Agent Blocker plugin - FIXED METRICS
+ * Event observers for AI Agent Blocker plugin - FIXED GRADE AND INTERACTIONS/PAGE
  *
  * @package    local_aiagentblock
  * @copyright  2025
@@ -60,8 +60,8 @@ class observer {
             return;
         }
         
-        // === FIX 1: GET ACTUAL GRADE ===
-        $grade_percent = self::get_attempt_grade($attempt, $quiz);
+        // === FIX 1: GET ACTUAL GRADE FROM GRADEBOOK ===
+        $grade_percent = self::get_attempt_grade_from_gradebook($attempt, $quiz);
         
         // === FIX 2: COUNT ACTUAL QUESTIONS (NOT SLOTS) ===
         $questioncount = $DB->count_records('quiz_slots', ['quizid' => $quiz->id]);
@@ -71,6 +71,11 @@ class observer {
         
         // === FIX 4: COUNT REAL USER INTERACTIONS ===
         $interaction_metrics = self::get_real_interactions($attempt->uniqueid);
+        
+        // === FIX 5: CALCULATE INTERACTIONS PER PAGE CORRECTLY ===
+        // Use test_pages (question pages >= 10 sec) NOT total questions
+        $interactions_per_page = $page_metrics['question_pages'] > 0 ?
+            round($interaction_metrics['total_steps'] / $page_metrics['question_pages'], 2) : 0;
         
         // === BEHAVIORAL ANALYSIS ===
         
@@ -166,10 +171,10 @@ class observer {
             $behavior_flags[] = 'INSTANT_NAVIGATION';
         }
         
-        // LOW INTERACTION SCORING
-        if ($interaction_metrics['interactions_per_question'] < 1.5 && $questioncount >= 3) {
+        // LOW INTERACTION SCORING (using correct interactions_per_page)
+        if ($interactions_per_page < 1.5 && $page_metrics['question_pages'] >= 3) {
             $suspicion_score += 20;
-            $reasons[] = 'very_low_interaction_' . round($interaction_metrics['interactions_per_question'], 1);
+            $reasons[] = 'very_low_interaction_' . round($interactions_per_page, 1);
             $behavior_flags[] = 'VERY_LOW_INTERACTION';
         }
         
@@ -210,7 +215,8 @@ class observer {
             $cv_percent,
             $page_metrics['question_pages'],
             $page_metrics['total_pages'],
-            $interaction_metrics,
+            $interaction_metrics['total_steps'],
+            $interactions_per_page, // FIXED: Now correctly calculated
             $answer_changes,
             $answered_sequentially,
             $navigation_metrics['instant_clicks'],
@@ -233,42 +239,36 @@ class observer {
     }
     
     /**
-     * FIX 1: Get actual grade percentage for THIS SPECIFIC ATTEMPT
+     * FIX 1: Get actual grade percentage from gradebook (what students see)
      * 
      * @param stdClass $attempt
      * @param stdClass $quiz
      * @return float Grade percentage (0-100)
      */
-    private static function get_attempt_grade($attempt, $quiz) {
+    private static function get_attempt_grade_from_gradebook($attempt, $quiz) {
         global $DB;
         
-        // CRITICAL: We want THIS attempt's grade, not the user's best grade
-        // The quiz_grades table stores the BEST grade across all attempts
-        // We need to calculate from THIS attempt's sumgrades
-        
-        // Primary method: Calculate directly from this attempt
-        if ($quiz->sumgrades > 0 && $attempt->sumgrades !== null) {
-            // This attempt's raw score / max possible score * 100
-            return round(($attempt->sumgrades / $quiz->sumgrades) * 100, 2);
-        }
-        
-        // Fallback: Try to get grade from quiz_grades if attempt is best
+        // Method 1: Get from quiz_grades table (this is what appears in gradebook)
         $final_grade = $DB->get_record('quiz_grades', [
             'quiz' => $quiz->id,
             'userid' => $attempt->userid
         ]);
         
         if ($final_grade && $quiz->grade > 0) {
-            // Only use this if it matches the current attempt's grade
-            $calculated_grade = ($attempt->sumgrades / $quiz->sumgrades) * $quiz->grade;
-            if (abs($calculated_grade - $final_grade->grade) < 0.01) {
-                return round(($final_grade->grade / $quiz->grade) * 100, 2);
-            }
+            // Convert to percentage: (student's grade / max grade) * 100
+            return round(($final_grade->grade / $quiz->grade) * 100, 2);
         }
         
-        // Last resort: Check if we have any grade data
-        if ($attempt->state == 'finished' && $attempt->sumgrades !== null) {
-            // Assume sumgrades is already a percentage if sumgrades not available
+        // Method 2: Calculate directly from this attempt if no grade record yet
+        // This happens if this is the first/only attempt
+        if ($quiz->sumgrades > 0 && $attempt->sumgrades !== null) {
+            // Scale to quiz grade, then to percentage
+            $scaled_grade = ($attempt->sumgrades / $quiz->sumgrades) * $quiz->grade;
+            return round(($scaled_grade / $quiz->grade) * 100, 2);
+        }
+        
+        // Method 3: Check if sumgrades is already a percentage
+        if ($attempt->state == 'finished' && $attempt->sumgrades !== null && $attempt->sumgrades <= 100) {
             return round($attempt->sumgrades, 2);
         }
         
@@ -386,15 +386,10 @@ class observer {
             $questions_answered = $total_questions;
         }
         
-        $interactions_per_question = $total_questions > 0 ? 
-            round($total_interactions / $total_questions, 2) : 0;
-        
         return [
             'total_steps' => $total_interactions,
             'questions_answered' => $questions_answered,
-            'total_questions' => $total_questions,
-            'interactions_per_question' => $interactions_per_question,
-            'steps_per_page' => $interactions_per_question // For backward compatibility
+            'total_questions' => $total_questions
         ];
     }
     
@@ -558,14 +553,15 @@ class observer {
     
     /**
      * Log timing-based detection to database
+     * FIXED: Now accepts and stores correct interactions_per_page
      */
     private static function log_timing_detection(
         $userid, $courseid, $contextid, $cmid, $quizname, 
         $score, $reasons, $behavior_flags, $duration, $minutes, 
         $questioncount, $grade_percent, $threshold, $attemptid,
-        $cv_percent, $question_pages, $total_pages, $interaction_metrics,
-        $answer_changes, $answered_sequentially, $instant_clicks,
-        $mean_time, $std_dev
+        $cv_percent, $question_pages, $total_pages, $total_steps,
+        $interactions_per_page, $answer_changes, $answered_sequentially, 
+        $instant_clicks, $mean_time, $std_dev
     ) {
         global $DB;
         
@@ -574,18 +570,18 @@ class observer {
         
         // Build comprehensive browser field
         $browser_info = sprintf(
-            'Time: %.1f min (%d sec) | Questions: %d | Pages: %d/%d | Interactions: %d (%.1f/q) | CV%%: %s | Mean: %ss | StdDev: %ss | Grade: %.1f%% | Changes: %d | Sequential: %s | InstantNav: %d | %s | Reasons: %s',
+            'Time: %.1f min (%d sec) | Questions: %d | Pages: %d/%d | Interactions: %d (%.1f/page) | CV%%: %s | Mean: %ss | StdDev: %ss | Grade: %.1f%% | Changes: %d | Sequential: %s | InstantNav: %d | %s | Reasons: %s',
             $minutes,
             $duration,
             $questioncount,
             $question_pages,
             $total_pages,
-            $interaction_metrics['total_steps'],
-            $interaction_metrics['interactions_per_question'],
+            $total_steps,
+            $interactions_per_page, // FIXED: Now shows correct value
             $cv_percent !== null ? round($cv_percent, 1) . '%' : 'N/A',
             $mean_time !== null ? round($mean_time) : 'N/A',
             $std_dev !== null ? round($std_dev) : 'N/A',
-            $grade_percent,
+            $grade_percent, // FIXED: Now shows correct grade
             $answer_changes,
             $answered_sequentially ? 'Yes' : 'No',
             $instant_clicks,
@@ -609,12 +605,12 @@ class observer {
         // Store metrics in dedicated columns
         $record->duration_seconds = $duration;
         $record->question_count = $questioncount;
-        $record->grade_percent = $grade_percent;
+        $record->grade_percent = $grade_percent; // FIXED: Correct grade stored
         $record->cv_percent = $cv_percent !== null ? round($cv_percent, 2) : null;
         $record->test_pages = $question_pages;
         $record->total_pages = $total_pages;
-        $record->total_steps = $interaction_metrics['total_steps'];
-        $record->steps_per_page = round($interaction_metrics['interactions_per_question'], 2);
+        $record->total_steps = $total_steps;
+        $record->steps_per_page = $interactions_per_page; // FIXED: Correct interactions/page stored
         
         $record->timecreated = time();
         
@@ -639,7 +635,7 @@ class observer {
         $message .= "Course: " . $course->fullname . "\n";
         $message .= "Quiz: " . $quizname . "\n";
         $message .= "Completion Time: " . $minutes . " minutes\n";
-        $message .= "Grade: " . round($grade, 1) . "%\n";
+        $message .= "Grade: " . round($grade, 1) . "%\n"; // FIXED: Shows correct grade
         $message .= "Threshold: " . $threshold . "\n";
         $message .= "Quiz URL: " . $pageurl->out(false) . "\n\n";
         $message .= "View full report: " . (new \moodle_url('/local/aiagentblock/report.php', 
