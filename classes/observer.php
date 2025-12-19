@@ -238,42 +238,34 @@ class observer {
         }
     }
     
-    /**
-     * FIX 1: Get actual grade percentage from gradebook (what students see)
-     * 
-     * @param stdClass $attempt
-     * @param stdClass $quiz
-     * @return float Grade percentage (0-100)
-     */
-    private static function get_attempt_grade_from_gradebook($attempt, $quiz) {
-        global $DB;
-        
-        // Method 1: Get from quiz_grades table (this is what appears in gradebook)
-        $final_grade = $DB->get_record('quiz_grades', [
-            'quiz' => $quiz->id,
-            'userid' => $attempt->userid
-        ]);
-        
-        if ($final_grade && $quiz->grade > 0) {
-            // Convert to percentage: (student's grade / max grade) * 100
-            return round(($final_grade->grade / $quiz->grade) * 100, 2);
-        }
-        
-        // Method 2: Calculate directly from this attempt if no grade record yet
-        // This happens if this is the first/only attempt
-        if ($quiz->sumgrades > 0 && $attempt->sumgrades !== null) {
-            // Scale to quiz grade, then to percentage
-            $scaled_grade = ($attempt->sumgrades / $quiz->sumgrades) * $quiz->grade;
-            return round(($scaled_grade / $quiz->grade) * 100, 2);
-        }
-        
-        // Method 3: Check if sumgrades is already a percentage
-        if ($attempt->state == 'finished' && $attempt->sumgrades !== null && $attempt->sumgrades <= 100) {
-            return round($attempt->sumgrades, 2);
-        }
-        
+   /**
+ * FIX 1: Get actual grade percentage for THIS SPECIFIC ATTEMPT
+ * 
+ * @param stdClass $attempt
+ * @param stdClass $quiz
+ * @return float Grade percentage (0-100)
+ */
+private static function get_attempt_grade($attempt, $quiz) {
+    // CRITICAL: We want THIS attempt's grade, not the user's best grade
+    // The quiz_grades table stores the BEST grade across all attempts
+    // We need to calculate from THIS attempt's sumgrades
+    
+    // Check if the attempt is finished
+    if ($attempt->state != 'finished') {
         return 0;
     }
+    
+    // Ensure we have the data we need
+    if ($quiz->sumgrades <= 0 || $attempt->sumgrades === null) {
+        return 0;
+    }
+    
+    // Calculate THIS attempt's grade percentage
+    // Formula: (attempt's raw score / max possible raw score) * 100
+    $grade_percent = ($attempt->sumgrades / $quiz->sumgrades) * 100;
+    
+    return round($grade_percent, 2);
+}
     
     /**
      * FIX 2: Calculate actual number of pages based on quiz layout
