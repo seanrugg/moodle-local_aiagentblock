@@ -61,7 +61,7 @@ class observer {
         }
         
         // === FIX 1: GET ACTUAL GRADE FROM GRADEBOOK ===
-        $grade_percent = self::get_attempt_grade_from_gradebook($attempt, $quiz);
+        $grade_percent = self::get_attempt_grade($attempt, $quiz);
         
         // === FIX 2: COUNT ACTUAL QUESTIONS (NOT SLOTS) ===
         $questioncount = $DB->count_records('quiz_slots', ['quizid' => $quiz->id]);
